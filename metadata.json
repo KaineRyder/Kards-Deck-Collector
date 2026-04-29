@@ -1,0 +1,6 @@
+{
+  "name": "Kards 卡组记录器",
+  "description": "高度还原 Kards 二战卡牌游戏风格的卡组管理与记录界面，支持卡组码导入。",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
