@@ -24,7 +24,14 @@ import {
   ChevronRight,
   Flame,
   Zap,
-  Anchor
+  Anchor,
+  Upload,
+  Image as ImageIcon,
+  FolderPlus,
+  Check,
+  Edit2,
+  ArrowRightLeft,
+  Palette
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 
@@ -38,7 +45,7 @@ interface Deck {
   allyNation?: Nation;
   code: string;
   isFavorite: boolean;
-  isVeteran: boolean;
+  cardBackUrl?: string;
   totalCards: number;
   warnings: string[];
   isArena: boolean;
@@ -57,63 +64,105 @@ const ID_TO_NATION: Record<number, Nation> = {
   9: 'Finland'
 };
 
+const ERROR_LOCALE: Record<string, string> = {
+  EMPTY_INPUT: '卡组代码不能为空',
+  INVALID_TYPE: '无效的传入类型',
+  INVALID_PREFIX: '未找到 %% 前缀或前缀错误',
+  INVALID_COUNTRY_HEADER: '非法的国家头部格式',
+  INVALID_COUNTRY_CODE: '非法的国家代码数字',
+  UNKNOWN_COUNTRY: '未知的国家代码',
+  MISSING_SEPARATOR: '缺少分隔符 |',
+  EXTRA_SEPARATOR: '包含多个分隔符 |',
+  INVALID_GROUP_COUNT: '卡牌分组格式错误（应有3个分号）',
+  INVALID_CARD_ID_LENGTH: '卡牌ID长度错误',
+  INVALID_WHITESPACE: '卡牌片段不能包含空格或换行等',
+  DUPLICATE_CARD_ID: '存在重复的卡牌ID',
+  CARD_COUNT_EXCEEDS_4: '同一张卡牌累计超过 4 张',
+};
+
 const NATION_DATA: Record<Nation, { label: string, color: string, flag: string, isMainAllowed: boolean, icon: string, defaultBack: string, veteranBack?: string }> = {
   Germany: { 
     label: '德', color: '#3d3d3d', flag: 'de', isMainAllowed: true,
-    icon: '/assets/German.png', defaultBack: '/assets/GermanDefault.jpg', veteranBack: '/assets/GermanDefault.jpg'
+    icon: '/assets/icons/Germany/German.png', defaultBack: '/assets/cardbacks/Germany/GermanDefault.jpg', veteranBack: '/assets/cardbacks/Germany/GermanDefault.jpg'
   },
   Britain: { 
     label: '英', color: '#002366', flag: 'gb', isMainAllowed: true,
-    icon: '/assets/Britain.png', defaultBack: '/assets/BritainDefault.jpg', veteranBack: '/assets/BritianVeteran.jpg'
+    icon: '/assets/icons/Britain/Britain.png', defaultBack: '/assets/cardbacks/Britain/BritainDefault.jpg', veteranBack: '/assets/cardbacks/Britain/BritianVeteran.jpg'
   },
   Japan: { 
     label: '日', color: '#bc002d', flag: 'jp', isMainAllowed: true,
-    icon: '/assets/Japan.png', defaultBack: '/assets/JapanDefault.jpg', veteranBack: '/assets/JapanVeteran.jpg'
+    icon: '/assets/icons/Japan/Japan.png', defaultBack: '/assets/cardbacks/Japan/JapanDefault.jpg', veteranBack: '/assets/cardbacks/Japan/JapanVeteran.jpg'
   },
   Soviet: { 
     label: '苏', color: '#cc0000', flag: 'su', isMainAllowed: true,
-    icon: '/assets/Soviet.png', defaultBack: '/assets/SovietDefault.jpg', veteranBack: '/assets/SovietVeteran.jpg'
+    icon: '/assets/icons/Soviet/Soviet.png', defaultBack: '/assets/cardbacks/Soviet/SovietDefault.jpg', veteranBack: '/assets/cardbacks/Soviet/SovietVeteran.jpg'
   },
   USA: { 
     label: '美', color: '#3c3b6e', flag: 'us', isMainAllowed: true,
-    icon: '/assets/Usa.png', defaultBack: '/assets/UsaDefault.jpg', veteranBack: '/assets/UsaVeteran.jpg'
+    icon: '/assets/icons/USA/Usa.png', defaultBack: '/assets/cardbacks/USA/UsaDefault.jpg', veteranBack: '/assets/cardbacks/USA/UsaVeteran.jpg'
   },
-  France: { label: '法', color: '#0055A4', flag: 'fr', isMainAllowed: false, icon: '/assets/France.png', defaultBack: '', veteranBack: '' },
-  Italy: { label: '意', color: '#008C45', flag: 'it', isMainAllowed: false, icon: '/assets/Italy.png', defaultBack: '', veteranBack: '' },
-  Poland: { label: '波', color: '#DC143C', flag: 'pl', isMainAllowed: false, icon: '/assets/Poland.jpg', defaultBack: '', veteranBack: '' },
-  Finland: { label: '芬', color: '#003580', flag: 'fi', isMainAllowed: false, icon: '/assets/Finland.png', defaultBack: '', veteranBack: '' },
+  France: { label: '法', color: '#0055A4', flag: 'fr', isMainAllowed: false, icon: '/assets/icons/France/France.png', defaultBack: '/assets/cardbacks/Common/BasicBeta.jpg', veteranBack: '' },
+  Italy: { label: '意', color: '#008C45', flag: 'it', isMainAllowed: false, icon: '/assets/icons/Italy/Italy.png', defaultBack: '/assets/cardbacks/Common/BasicBeta.jpg', veteranBack: '' },
+  Poland: { label: '波', color: '#DC143C', flag: 'pl', isMainAllowed: false, icon: '/assets/icons/Poland/Poland.jpg', defaultBack: '/assets/cardbacks/Common/BasicBeta.jpg', veteranBack: '' },
+  Finland: { label: '芬', color: '#003580', flag: 'fi', isMainAllowed: false, icon: '/assets/icons/Finland/Finland.png', defaultBack: '/assets/cardbacks/Common/BasicBeta.jpg', veteranBack: '' },
 };
 
+const NATION_FLAG_ASSETS: Record<string, string> = {
+  de: '/assets/flags/Germany.svg',
+  gb: '/assets/flags/Britain.svg',
+  jp: '/assets/flags/Japan.svg',
+  su: '/assets/flags/Soviet.svg',
+  us: '/assets/flags/USA.svg',
+  fr: '/assets/flags/France.svg',
+  it: '/assets/flags/Italy.svg',
+  pl: '/assets/flags/Poland.svg',
+  fi: '/assets/flags/Finland.svg',
+};
+
+const BUILT_IN_TABLECLOTHS = Array.from({ length: 19 }, (_, i) => `/assets/tablecloths/tablecloth (${i + 1}).jpeg`);
+
 const getFlagUrl = (nationCode: string) => {
-  if (nationCode === 'su') {
-    return '/assets/Flag_of_the_Soviet_Union.jpg';
-  }
-  return `https://flagcdn.com/w80/${nationCode}.png`;
+  return NATION_FLAG_ASSETS[nationCode] || `https://flagcdn.com/w80/${nationCode}.png`;
 };
 
 const parseDeck = (code: string) => {
+  if (typeof code !== "string") {
+      throw new Error("INVALID_TYPE");
+  }
+
   const trimmed = code.trim();
   
-  if (!trimmed.startsWith('%%')) {
-    throw new Error('格式错误');
+  if (!trimmed) {
+      throw new Error("EMPTY_INPUT");
   }
 
-  const pipeIndex = trimmed.indexOf('|');
+  if (!code.startsWith('%%') || code.startsWith('%%%')) {
+    throw new Error('INVALID_PREFIX');
+  }
+
+  const pipeIndex = code.indexOf('|');
   if (pipeIndex === -1) {
-    throw new Error('格式错误');
+    throw new Error('MISSING_SEPARATOR');
   }
 
-  // Header is between %% and |
-  const header = trimmed.substring(2, pipeIndex).trim();
+  if (code.indexOf('|', pipeIndex + 1) !== -1) {
+      throw new Error("EXTRA_SEPARATOR");
+  }
+
+  const header = code.substring(2, pipeIndex);
   if (header.length !== 2) {
-    throw new Error('格式错误');
+    throw new Error('INVALID_COUNTRY_HEADER');
   }
 
   const mainId = parseInt(header[0], 10);
   const allyId = parseInt(header[1], 10);
 
-  if (isNaN(mainId) || isNaN(allyId) || !ID_TO_NATION[mainId] || !ID_TO_NATION[allyId]) {
-    throw new Error('格式错误');
+  if (isNaN(mainId) || isNaN(allyId)) {
+    throw new Error('INVALID_COUNTRY_CODE');
+  }
+
+  if (!ID_TO_NATION[mainId] || !ID_TO_NATION[allyId]) {
+      throw new Error("UNKNOWN_COUNTRY");
   }
 
   const mainNation = ID_TO_NATION[mainId];
@@ -126,21 +175,48 @@ const parseDeck = (code: string) => {
     warnings.push(`主国限制错误`);
   }
 
-  const cardData = trimmed.substring(pipeIndex + 1);
+  const cardData = code.substring(pipeIndex + 1);
   const sections = cardData.split(';');
-  let totalCards = 0;
   
-  sections.forEach((section, index) => {
+  if (sections.length !== 4) {
+    throw new Error('INVALID_GROUP_COUNT');
+  }
+
+  let totalCards = 0;
+  const cardCounts: Record<string, number> = {};
+  
+  for (let index = 0; index < sections.length; index++) {
+    const section = sections[index];
     const count = index + 1;
-    const cleanSection = section.replace(/\s/g, '');
-    const numCardsInBatch = Math.floor(cleanSection.length / 2);
-    totalCards += numCardsInBatch * count;
-  });
+    
+    // Check for whitespace
+    if (/\s/.test(section)) {
+        throw new Error("INVALID_WHITESPACE");
+    }
+
+    if (section.length % 2 !== 0) {
+      throw new Error('INVALID_CARD_ID_LENGTH');
+    }
+
+    const numCardsInBatch = section.length / 2;
+    for (let i = 0; i < numCardsInBatch; i++) {
+        const cardId = section.substring(i * 2, i * 2 + 2);
+        if (cardCounts[cardId]) {
+            cardCounts[cardId] += count;
+            if (cardCounts[cardId] > 4) {
+                throw new Error("CARD_COUNT_EXCEEDS_4");
+            }
+            throw new Error('DUPLICATE_CARD_ID');
+        }
+        cardCounts[cardId] = count;
+        totalCards += count;
+    }
+  }
 
   if (totalCards < 39) {
-    warnings.push(`卡组不足39张`);
+    warnings.push(`卡组不足39张(当前${totalCards}张)`);
   } else if (totalCards > 40) {
-    warnings.push(`超过40张`);
+    warnings.push(`卡组超过40张(当前${totalCards}张)`);
   }
 
   const defaultName = isArena ? '竞技场卡组' : `${NATION_DATA[mainNation].label}${NATION_DATA[allyNation].label}卡组`;
@@ -148,15 +224,187 @@ const parseDeck = (code: string) => {
   return { mainNation, allyNation, totalCards, warnings, isArena, defaultName };
 };
 
+const CARD_BACK_CATEGORIES = [
+  {
+    name: '通用',
+    backs: [
+      { id: 'common_basic', url: '/assets/cardbacks/Common/BasicBeta.jpg', name: '基本测试版' }
+    ]
+  },
+  {
+    name: '德国',
+    backs: [
+      { id: 'ger_def', url: '/assets/cardbacks/Germany/GermanDefault.jpg', name: '德国默认' }
+    ]
+  },
+  {
+    name: '英国',
+    backs: [
+      { id: 'gbr_def', url: '/assets/cardbacks/Britain/BritainDefault.jpg', name: '英国默认' },
+      { id: 'gbr_vet', url: '/assets/cardbacks/Britain/BritianVeteran.jpg', name: '英国老兵' }
+    ]
+  },
+  {
+    name: '日本',
+    backs: [
+      { id: 'jpn_def', url: '/assets/cardbacks/Japan/JapanDefault.jpg', name: '日本默认' },
+      { id: 'jpn_vet', url: '/assets/cardbacks/Japan/JapanVeteran.jpg', name: '日本老兵' }
+    ]
+  },
+  {
+    name: '苏联',
+    backs: [
+      { id: 'sov_def', url: '/assets/cardbacks/Soviet/SovietDefault.jpg', name: '苏联默认' },
+      { id: 'sov_vet', url: '/assets/cardbacks/Soviet/SovietVeteran.jpg', name: '苏联老兵' }
+    ]
+  },
+  {
+    name: '美国',
+    backs: [
+      { id: 'usa_def', url: '/assets/cardbacks/USA/UsaDefault.jpg', name: '美国默认' },
+      { id: 'usa_vet', url: '/assets/cardbacks/USA/UsaVeteran.jpg', name: '美国老兵' }
+    ]
+  }
+];
+
 const INITIAL_DECKS: Deck[] = [];
 
 export default function App() {
-  const [decks, setDecks] = useState<Deck[]>(INITIAL_DECKS);
+  const [decks, setDecks] = useState<Deck[]>(() => {
+    try {
+      const saved = localStorage.getItem('kards_decks');
+      return saved ? JSON.parse(saved) : INITIAL_DECKS;
+    } catch {
+      return INITIAL_DECKS;
+    }
+  });
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(decks.length === 0);
   const [importCode, setImportCode] = useState('');
   const [activeMenu, setActiveMenu] = useState('decks');
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
+  const [showCardBackModal, setShowCardBackModal] = useState<string | null>(null);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  
+  const [customCategories, setCustomCategories] = useState<{id: string, name: string, backs: {id: string, url: string, name: string}[]}[]>(() => {
+    try {
+      const saved = localStorage.getItem('kards_custom_categories');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kards_decks', JSON.stringify(decks));
+    } catch (e) {
+      console.error('Failed to save decks', e);
+    }
+  }, [decks]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kards_custom_categories', JSON.stringify(customCategories));
+    } catch (e) {
+      console.error('Failed to save custom categories. You might have uploaded too many images or exceeded the 5MB localStorage limit.', e);
+    }
+  }, [customCategories]);
+
+  const [addingCategory, setAddingCategory] = useState(false);
+  const [newCatName, setNewCatName] = useState('');
+  const [uploadCategory, setUploadCategory] = useState('');
+  const [showUploadModal, setShowUploadModal] = useState(false);
+  const [movingCardInfo, setMovingCardInfo] = useState<{catId: string, backId: string} | null>(null);
+  const [editingCardInfo, setEditingCardInfo] = useState<{catId: string, backId: string} | null>(null);
+  const [editingCardName, setEditingCardName] = useState('');
+
+  const [selectedTablecloth, setSelectedTablecloth] = useState<string | null>(() => {
+    return localStorage.getItem('kards_selected_tablecloth');
+  });
+
+  const [customTablecloths, setCustomTablecloths] = useState<string[]>(() => {
+    try {
+      const saved = localStorage.getItem('kards_custom_tablecloths');
+      return saved ? JSON.parse(saved) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [showTableclothModal, setShowTableclothModal] = useState(false);
+  const [tableclothUploadError, setTableclothUploadError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (selectedTablecloth) {
+      localStorage.setItem('kards_selected_tablecloth', selectedTablecloth);
+    } else {
+      localStorage.removeItem('kards_selected_tablecloth');
+    }
+  }, [selectedTablecloth]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('kards_custom_tablecloths', JSON.stringify(customTablecloths));
+    } catch (e) {
+      console.error('Failed to save custom tablecloths', e);
+    }
+  }, [customTablecloths]);
+
+  const handleTableclothUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+    if (!allowedTypes.includes(file.type)) {
+      setTableclothUploadError('仅支持 JPG, PNG, WEBP 格式');
+      return;
+    }
+
+    if (file.size > 5 * 1024 * 1024) { 
+      setTableclothUploadError('文件太大，请选择 5MB 以下的图片');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const result = event.target?.result as string;
+      
+      // Limit to 4 custom tablecloths to prevent localstorage quota error
+      setCustomTablecloths(prev => {
+        const next = [...prev, result];
+        return next.slice(-4);
+      });
+      setSelectedTablecloth(result);
+      setTableclothUploadError(null);
+    };
+    reader.readAsDataURL(file);
+  };
+
+  const allCategories = React.useMemo(() => {
+    const merged = CARD_BACK_CATEGORIES.map(c => ({
+      id: c.name,
+      name: c.name,
+      isCustom: false,
+      backs: c.backs.map(b => ({ ...b, isCustomCard: false }))
+    }));
+
+    customCategories.forEach(cc => {
+      const existing = merged.find(m => m.id === cc.id);
+      if (existing) {
+        existing.backs.push(...cc.backs.map(b => ({ ...b, isCustomCard: true })));
+      } else {
+        merged.push({
+          id: cc.id,
+          name: cc.name,
+          isCustom: true,
+          backs: cc.backs.map(b => ({ ...b, isCustomCard: true }))
+        });
+      }
+    });
+
+    return merged;
+  }, [customCategories]);
 
   const selectedDeck = decks.find(d => d.id === selectedDeckId);
 
@@ -173,7 +421,6 @@ export default function App() {
         allyNation,
         code: importCode,
         isFavorite: false,
-        isVeteran: false, // Default cardback
         totalCards,
         warnings,
         isArena
@@ -185,7 +432,7 @@ export default function App() {
       setShowImportModal(false);
       setErrorStatus(null);
     } catch (e: any) {
-      setErrorStatus(e.message || '格式错误');
+      setErrorStatus(ERROR_LOCALE[e.message] || e.message || '格式错误');
     }
   };
 
@@ -207,8 +454,45 @@ export default function App() {
     setDecks(decks.map(d => d.id === id ? { ...d, name: newName } : d));
   };
 
-  const toggleVeteran = (id: string) => {
-    setDecks(decks.map(d => d.id === id ? { ...d, isVeteran: !d.isVeteran } : d));
+  const handleMultiFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from<File>(e.target.files as unknown as Iterable<File> || []);
+    if (!files.length) return;
+
+    if (!uploadCategory) {
+      setUploadError('请先选择一个分类');
+      return;
+    }
+
+    const validFiles = files.filter(f => f.type.startsWith('image/') && f.size <= 2 * 1024 * 1024);
+    if (validFiles.length !== files.length) {
+      setUploadError(`跳过了 ${files.length - validFiles.length} 个格式有误或超过2MB的文件`);
+    } else {
+      setUploadError(null);
+    }
+    
+    if (validFiles.length === 0) return;
+
+    validFiles.forEach(file => {
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        const result = event.target?.result as string;
+        setCustomCategories(prev => {
+          const newCatId = uploadCategory;
+          const catExists = prev.some(c => c.id === newCatId);
+          if (catExists) {
+             return prev.map(c => 
+               c.id === newCatId ? { ...c, backs: [...c.backs, { id: Date.now().toString() + Math.random(), url: result, name: file.name }] } : c
+             );
+          } else {
+             const builtIn = CARD_BACK_CATEGORIES.find(c => c.name === newCatId);
+             return [...prev, { id: newCatId, name: builtIn ? builtIn.name : newCatId, backs: [{ id: Date.now().toString() + Math.random(), url: result, name: file.name }] }];
+          }
+        });
+      };
+      reader.readAsDataURL(file);
+    });
+    
+    setShowUploadModal(false);
   };
 
   // Sort: favorites first
@@ -221,7 +505,7 @@ export default function App() {
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
             <img 
-              src="/assets/KardsLogoBeige.png" 
+              src="/assets/kards_logos/Common/KardsLogoBeige.png" 
               alt="KARDS Logo" 
               className="h-16 w-auto"
               onError={(e) => { e.currentTarget.style.display = 'none'; }}
@@ -234,6 +518,13 @@ export default function App() {
         </div>
 
         <div className="flex items-center gap-3">
+          <button 
+            onClick={() => setShowTableclothModal(true)}
+            className="p-2 hover:bg-white/5 transition-colors group relative"
+            title="切换桌布"
+          >
+            <Palette className="w-5 h-5 text-gray-400 group-hover:text-kards-gold" />
+          </button>
           <button className="p-2 hover:bg-white/5 transition-colors">
             <User className="w-5 h-5 text-gray-400" />
           </button>
@@ -269,16 +560,46 @@ export default function App() {
         </aside>
 
         {/* Center Grid */}
-        <main className="flex-1 bg-black/20 p-8 overflow-y-auto no-scrollbar relative min-w-[800px]">
+        <main 
+          className="flex-1 p-8 overflow-y-auto no-scrollbar relative min-w-[800px]"
+          style={{
+            backgroundImage: selectedTablecloth ? `url("${selectedTablecloth}")` : undefined,
+            backgroundSize: 'cover',
+            backgroundPosition: 'center',
+            backgroundAttachment: 'fixed',
+            backgroundColor: !selectedTablecloth ? 'rgba(0,0,0,0.2)' : undefined
+          }}
+        >
           {/* Nation Background Background */}
           {selectedDeck && (
             <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
-               <img 
+              {!selectedDeck.isArena && selectedDeck.allyNation ? (
+                <div className="flex items-center justify-center gap-32 w-full">
+                  <div className="flex-1 flex justify-end">
+                    <img 
+                      src={NATION_DATA[selectedDeck.mainNation].icon} 
+                      className={`w-[450px] h-[450px] object-contain transition-all duration-1000 ${selectedTablecloth ? 'opacity-40' : 'opacity-25'}`} 
+                      alt="main nation background"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  </div>
+                  <div className="flex-1 flex justify-start">
+                    <img 
+                      src={NATION_DATA[selectedDeck.allyNation].icon} 
+                      className={`w-[350px] h-[350px] object-contain transition-all duration-1000 ${selectedTablecloth ? 'opacity-30' : 'opacity-20'}`} 
+                      alt="ally nation background"
+                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
+                    />
+                  </div>
+                </div>
+              ) : (
+                <img 
                   src={NATION_DATA[selectedDeck.mainNation].icon} 
-                  className="w-[500px] h-[500px] object-contain transition-all duration-1000 opacity-20" 
+                  className={`w-[500px] h-[500px] object-contain transition-all duration-1000 ${selectedTablecloth ? 'opacity-40' : 'opacity-25'}`} 
                   alt="nation background"
                   onError={(e) => { e.currentTarget.style.display = 'none'; }}
-               />
+                />
+              )}
             </div>
           )}
           
@@ -325,41 +646,41 @@ export default function App() {
                 <div className="flex flex-col items-center">
                   <div 
                     className="w-40 aspect-[5/7] military-border overflow-hidden relative group cursor-pointer bg-[#222] flex items-center justify-center shrink-0 shadow-2xl"
-                    onClick={() => {
-                        if (NATION_DATA[selectedDeck.mainNation].veteranBack) {
-                            toggleVeteran(selectedDeck.id);
-                        }
-                    }}
+                    onClick={() => setShowCardBackModal(selectedDeck.id)}
                   >
-                    <img 
-                      src={selectedDeck.isVeteran && NATION_DATA[selectedDeck.mainNation].veteranBack ? NATION_DATA[selectedDeck.mainNation].veteranBack : (NATION_DATA[selectedDeck.mainNation].defaultBack || '/assets/BasicBeta.png')} 
-                      alt={selectedDeck.name}
-                      className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-                      onError={(e) => { e.currentTarget.src = '/assets/BasicBeta.png'; }}
-                    />
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center backdrop-blur-sm">
+                        <span className="text-white font-bold tracking-widest text-sm flex items-center gap-2">
+                          <ImageIcon className="w-4 h-4" />
+                          更换卡背
+                        </span>
+                      </div>
+                      <img 
+                        src={selectedDeck.cardBackUrl || NATION_DATA[selectedDeck.mainNation].defaultBack || '/assets/cardbacks/Common/BasicBeta.jpg'} 
+                        alt={selectedDeck.name}
+                        className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+                        onError={(e) => { 
+                          if (e.currentTarget.getAttribute('data-error')) return;
+                          e.currentTarget.setAttribute('data-error', 'true');
+                          e.currentTarget.src = '/assets/cardbacks/Common/BasicBeta.jpg'; 
+                        }}
+                      />
+                    
+                    {/* Small flags at the bottom left */}
+                    <div className="absolute bottom-1.5 left-1.5 flex items-end gap-1 bg-black/70 p-1 rounded-sm backdrop-blur-sm border border-white/10 z-10">
+                      <img src={getFlagUrl(NATION_DATA[selectedDeck.mainNation].flag)} className="w-5 h-3.5 object-contain" alt="main" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                      {selectedDeck.allyNation && (
+                        <div className="flex items-end gap-1">
+                           <div className="w-[1px] h-3 bg-white/20" />
+                           <img src={getFlagUrl(NATION_DATA[selectedDeck.allyNation].flag)} className="w-3.5 h-2.5 object-contain opacity-80" alt="ally" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+                        </div>
+                      )}
+                    </div>
+
                     {NATION_DATA[selectedDeck.mainNation].veteranBack && (
-                        <div className="absolute inset-x-0 bottom-2 text-center opacity-0 group-hover:opacity-100 transition-opacity">
+                        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
                             <span className="text-[10px] text-white bg-black/80 px-2 py-1 rounded">点击切换卡背</span>
                         </div>
                     )}
-                  </div>
-
-                  <div className="w-full mt-6 flex flex-col gap-3">
-                    <div className="flex items-center justify-center gap-4 py-2 bg-black/20 military-border">
-                      <div className="flex flex-col items-center gap-1">
-                        <img src={getFlagUrl(NATION_DATA[selectedDeck.mainNation].flag)} className="w-8 h-8 object-contain" alt="main" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                        <span className="text-[10px] text-gray-500 font-bold uppercase">{selectedDeck.mainNation}</span>
-                      </div>
-                      {selectedDeck.allyNation && (
-                        <>
-                          <div className="w-px h-8 bg-white/10" />
-                          <div className="flex flex-col items-center gap-1">
-                            <img src={getFlagUrl(NATION_DATA[selectedDeck.allyNation].flag)} className="w-6 h-6 object-contain opacity-80" alt="ally" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
-                            <span className="text-[10px] text-gray-700 font-bold uppercase">{selectedDeck.allyNation}</span>
-                          </div>
-                        </>
-                      )}
-                    </div>
                   </div>
                 </div>
               </div>
@@ -464,6 +785,418 @@ export default function App() {
           </div>
         )}
       </AnimatePresence>
+
+      {/* --- Tablecloth Modal --- */}
+      <AnimatePresence>
+        {showTableclothModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowTableclothModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-4xl max-h-[80vh] bg-[#222] military-border p-8 shadow-2xl flex flex-col z-50"
+            >
+              <button 
+                onClick={() => setShowTableclothModal(false)}
+                className="absolute top-4 right-4 text-gray-500 hover:text-white"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              
+              <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-4">
+                <h3 className="text-2xl font-bold flex items-center gap-3">
+                  <Palette className="w-6 h-6 text-kards-gold" /> 切换桌布
+                </h3>
+                
+                <label className="flex items-center gap-2 bg-kards-accent px-4 py-2 font-bold cursor-pointer hover:brightness-125 transition-all text-sm text-white">
+                  <Upload className="w-4 h-4" /> 上传自定义桌布
+                  <input 
+                    type="file" 
+                    className="hidden" 
+                    accept="image/*"
+                    onChange={handleTableclothUpload}
+                  />
+                </label>
+              </div>
+
+              {tableclothUploadError && (
+                <div className="mb-4 bg-red-500/20 border border-red-500 p-3 flex items-center gap-2 text-red-500 text-sm font-bold">
+                  <Zap className="w-4 h-4" /> {tableclothUploadError}
+                </div>
+              )}
+              
+              <div className="flex-1 overflow-y-auto w-full no-scrollbar pr-2 pb-8">
+                <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
+                  {/* Default / Empty Option */}
+                  <div 
+                    onClick={() => setSelectedTablecloth(null)}
+                    className={`aspect-video military-border flex flex-col items-center justify-center cursor-pointer transition-all ${!selectedTablecloth ? 'border-kards-gold bg-kards-gold/10' : 'bg-[#111] hover:bg-white/5 opacity-60 hover:opacity-100'}`}
+                  >
+                    <ImageIcon className="w-8 h-8 mb-2 text-gray-500" />
+                    <span className="text-xs font-bold uppercase tracking-widest">默认桌布</span>
+                  </div>
+
+                  {/* Custom Uploads */}
+                  {customTablecloths.map((url, idx) => (
+                    <div 
+                      key={`custom-${idx}`}
+                      onClick={() => setSelectedTablecloth(url)}
+                      className={`aspect-video military-border overflow-hidden cursor-pointer group relative ${selectedTablecloth === url ? 'ring-2 ring-kards-gold' : 'hover:brightness-110 opacity-80 hover:opacity-100'}`}
+                    >
+                      <img src={url} className="w-full h-full object-cover" alt={`Custom ${idx}`} />
+                      <button 
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setCustomTablecloths(prev => prev.filter((_, i) => i !== idx));
+                          if (selectedTablecloth === url) setSelectedTablecloth(null);
+                        }}
+                        className="absolute top-1 right-1 p-1 bg-black/60 rounded text-red-500 opacity-0 group-hover:opacity-100 transition-opacity z-10"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                      <div className="absolute inset-0 bg-kards-gold/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Check className={`w-6 h-6 text-white ${selectedTablecloth === url ? 'opacity-100' : 'opacity-0'}`} />
+                      </div>
+                    </div>
+                  ))}
+
+                  {/* Built-in Tablecloths */}
+                  {BUILT_IN_TABLECLOTHS.map((url, idx) => (
+                    <div 
+                      key={`builtin-${idx}`}
+                      onClick={() => setSelectedTablecloth(url)}
+                      className={`aspect-video military-border overflow-hidden cursor-pointer group relative ${selectedTablecloth === url ? 'ring-2 ring-kards-gold' : 'hover:brightness-110 opacity-80 hover:opacity-100'}`}
+                    >
+                      <img src={url} className="w-full h-full object-cover" alt={`Tablecloth ${idx + 1}`} />
+                      <div className="absolute inset-0 bg-kards-gold/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
+                        <Check className={`w-6 h-6 text-white ${selectedTablecloth === url ? 'opacity-100' : 'opacity-0'}`} />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      <AnimatePresence>
+        {showCardBackModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowCardBackModal(null)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-4xl max-h-[80vh] bg-[#222] military-border p-8 shadow-2xl flex flex-col"
+            >
+              <button 
+                onClick={() => setShowCardBackModal(null)}
+                className="absolute top-4 right-4 text-gray-500 hover:text-white"
+              >
+                <X className="w-6 h-6" />
+              </button>
+              
+              <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-4">
+                <h3 className="text-2xl font-bold flex items-center gap-3">
+                  <ImageIcon className="w-6 h-6 text-kards-gold" /> 更换卡背
+                </h3>
+                
+                <div className="flex gap-4">
+                  {addingCategory ? (
+                    <div className="flex items-center gap-2">
+                       <input 
+                         type="text"
+                         value={newCatName}
+                         onChange={e => setNewCatName(e.target.value)}
+                         placeholder="分类名称..."
+                         className="bg-black/50 border border-white/20 px-3 py-1 text-sm focus:outline-none focus:border-kards-gold text-white w-32"
+                         autoFocus
+                         onKeyDown={e => {
+                           if (e.key === 'Enter') {
+                             if (!newCatName.trim()) return;
+                             setCustomCategories(prev => [...prev, { id: 'cat_' + Date.now().toString(), name: newCatName.trim(), backs: [] }]);
+                             setNewCatName('');
+                             setAddingCategory(false);
+                           } else if (e.key === 'Escape') {
+                             setAddingCategory(false);
+                           }
+                         }}
+                       />
+                       <button 
+                         onClick={() => {
+                           if (!newCatName.trim()) return;
+                           setCustomCategories(prev => [...prev, { id: 'cat_' + Date.now().toString(), name: newCatName.trim(), backs: [] }]);
+                           setNewCatName('');
+                           setAddingCategory(false);
+                         }}
+                         className="bg-green-600 hover:bg-green-500 text-white px-2 py-1 flex items-center gap-1 text-sm"
+                       ><Check className="w-4 h-4" /></button>
+                       <button onClick={() => setAddingCategory(false)} className="bg-red-600 hover:bg-red-500 text-white px-2 py-1"><X className="w-4 h-4" /></button>
+                    </div>
+                  ) : (
+                    <button 
+                      onClick={() => setAddingCategory(true)}
+                      className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+                    >
+                      <FolderPlus className="w-4 h-4" /> 添加分类
+                    </button>
+                  )}
+
+                  <button 
+                    onClick={() => {
+                      setUploadError(null);
+                      setUploadCategory(allCategories.length > 0 ? allCategories[0].id : '');
+                      setShowUploadModal(true);
+                    }}
+                    className="flex items-center gap-2 bg-kards-accent px-4 py-2 font-bold hover:brightness-125 transition-all"
+                  >
+                    <Upload className="w-4 h-4" /> 上传卡背
+                  </button>
+                </div>
+              </div>
+
+              {uploadError && (
+                <div className="mb-4 bg-red-500/20 border border-red-500 p-3 flex items-center gap-2 text-red-500 text-sm font-bold">
+                  <Zap className="w-4 h-4" /> {uploadError}
+                </div>
+              )}
+              
+              <div className="flex-1 overflow-y-auto w-full no-scrollbar pr-2 pb-8">
+                {allCategories.map(category => (
+                  <div key={category.id} className="mb-8 relative auto-animate">
+                    <div className="flex items-center justify-between mb-4">
+                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
+                        <span className="w-4 h-[1px] bg-gray-600" />
+                        {category.name} {category.isCustom && <span className="text-xs font-normal text-kards-gold border border-kards-gold px-1 rounded-sm ml-2">自定义</span>}
+                        <span className="flex-1 h-[1px] bg-gray-800" />
+                      </h4>
+                      {category.isCustom && (
+                        <button 
+                          onClick={() => {
+                            if (window.confirm(`确定要删除分类“${category.name}”及其包含的文件吗？`)) {
+                              setCustomCategories(prev => prev.filter(c => c.id !== category.id));
+                            }
+                          }}
+                          className="text-xs text-red-500 hover:text-red-400 flex items-center gap-1 opacity-50 hover:opacity-100 transition-opacity"
+                        >
+                          删除分类
+                        </button>
+                      )}
+                    </div>
+                    {category.backs.length === 0 ? (
+                      <div className="text-center py-8 text-gray-600 text-sm italic bg-black/20 border border-white/5">
+                        暂无自定义卡背
+                      </div>
+                    ) : (
+                      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                        {category.backs.map((back: any) => (
+                          <div 
+                            key={back.id}
+                            className="flex flex-col items-center group cursor-pointer relative"
+                            onClick={() => {
+                              setDecks(decks.map(d => d.id === showCardBackModal ? { ...d, cardBackUrl: back.url } : d));
+                              setShowCardBackModal(null);
+                            }}
+                          >
+                            <div className="w-full aspect-[5/7] military-border overflow-hidden bg-black/50 group-hover:border-kards-gold transition-colors relative shadow-black/50 shadow-lg">
+                              <img 
+                                src={back.url} 
+                                alt={back.name} 
+                                className="w-full h-full object-contain group-hover:scale-105 transition-transform"
+                                onError={(e) => {
+                                  e.currentTarget.src = '/assets/cardbacks/Common/BasicBeta.jpg';
+                                }}
+                              />
+                              <div className="absolute inset-0 bg-kards-gold/20 opacity-0 group-hover:opacity-100 transition-opacity" />
+                              
+                              {category.isCustom && (
+                                <div className="absolute top-1 right-1 flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity z-20">
+                                  {customCategories.length > 1 && (
+                                    <button 
+                                      className="p-1 bg-black/80 hover:bg-kards-accent text-white"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setMovingCardInfo({catId: category.id, backId: back.id});
+                                      }}
+                                    >
+                                      <ArrowRightLeft className="w-4 h-4" />
+                                    </button>
+                                  )}
+                                  <button 
+                                    className="p-1 bg-black/80 hover:bg-green-600 text-white"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setEditingCardInfo({catId: category.id, backId: back.id});
+                                      setEditingCardName(back.name);
+                                    }}
+                                  >
+                                    <Edit2 className="w-4 h-4" />
+                                  </button>
+                                  <button 
+                                    className="p-1 bg-black/80 hover:bg-red-600 text-white"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      setCustomCategories(prev => prev.map(c => 
+                                        c.id === category.id ? { ...c, backs: c.backs.filter((b: any) => b.id !== back.id) } : c
+                                      ));
+                                    }}
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              )}
+
+                              {movingCardInfo?.backId === back.id && category.isCustom && (
+                                <div className="absolute inset-0 z-30 bg-black/90 flex flex-col items-center justify-center p-2" onClick={e => e.stopPropagation()}>
+                                  <span className="text-white text-xs mb-2">移动至...</span>
+                                  <select 
+                                    className="w-full bg-black border border-white/50 text-white text-xs p-2 mb-2 focus:outline-none"
+                                    onChange={(e) => {
+                                      if(e.target.value) {
+                                        const newCatId = e.target.value;
+                                        setCustomCategories(prev => {
+                                           const oldCat = prev.find(c => c.id === category.id);
+                                           const b = oldCat?.backs.find((bk: any) => bk.id === back.id);
+                                           if (!b) return prev;
+                                           return prev.map(c => {
+                                               if (c.id === category.id) return { ...c, backs: c.backs.filter((bk: any) => bk.id !== back.id) };
+                                               if (c.id === newCatId) return { ...c, backs: [...c.backs, b] };
+                                               return c;
+                                           });
+                                        });
+                                        setMovingCardInfo(null);
+                                      }
+                                    }}
+                                    defaultValue=""
+                                  >
+                                    <option value="" disabled>选择分类</option>
+                                    {customCategories.filter(c => c.id !== category.id).map(c => (
+                                      <option key={c.id} value={c.id}>{c.name}</option>
+                                    ))}
+                                  </select>
+                                  <button className="text-kards-gold hover:text-white text-xs" onClick={() => setMovingCardInfo(null)}>取消</button>
+                                </div>
+                              )}
+                            </div>
+                            {editingCardInfo?.backId === back.id && category.isCustom ? (
+                               <div className="mt-2 w-full flex items-center px-2 z-40" onClick={e => e.stopPropagation()}>
+                                  <input 
+                                     autoFocus
+                                     className="w-full bg-black border border-kards-gold text-white text-xs px-1 py-0.5 focus:outline-none"
+                                     value={editingCardName}
+                                     onChange={e => setEditingCardName(e.target.value)}
+                                     onKeyDown={e => {
+                                        if (e.key === 'Enter') {
+                                           if (!editingCardName.trim()) return;
+                                           setCustomCategories(prev => prev.map(c => c.id === category.id ? {
+                                              ...c,
+                                              backs: c.backs.map((b: any) => b.id === back.id ? { ...b, name: editingCardName.trim() } : b)
+                                           } : c));
+                                           setEditingCardInfo(null);
+                                        } else if (e.key === 'Escape') {
+                                           setEditingCardInfo(null);
+                                        }
+                                     }}
+                                     onBlur={() => {
+                                         if (!editingCardName.trim()) return;
+                                         setCustomCategories(prev => prev.map(c => c.id === category.id ? {
+                                            ...c,
+                                            backs: c.backs.map((b: any) => b.id === back.id ? { ...b, name: editingCardName.trim() } : b)
+                                         } : c));
+                                         setEditingCardInfo(null);
+                                     }}
+                                  />
+                               </div>
+                            ) : (
+                               <span className="mt-2 text-xs text-center truncate w-full px-2 text-gray-500 group-hover:text-white transition-colors">{back.name}</span>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+              
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* --- Upload Modal --- */}
+      <AnimatePresence>
+        {showUploadModal && (
+          <div className="fixed inset-0 z-[60] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowUploadModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-sm bg-[#222] military-border p-6 shadow-2xl flex flex-col items-center"
+            >
+              <h3 className="text-xl font-bold mb-4 text-center">上传自定义卡背</h3>
+              <div className="w-full mb-4">
+                <label className="block text-sm text-gray-400 mb-2">选择分类</label>
+                <select 
+                  className="w-full bg-black/50 border border-white/20 p-2 text-white focus:outline-none focus:border-kards-gold"
+                  value={uploadCategory}
+                  onChange={e => setUploadCategory(e.target.value)}
+                >
+                  <optgroup label="默认分类">
+                    {allCategories.filter(c => !c.isCustom).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
+                  </optgroup>
+                  {allCategories.filter(c => c.isCustom).length > 0 && (
+                    <optgroup label="自定义分类">
+                      {allCategories.filter(c => c.isCustom).map(c => (
+                        <option key={c.id} value={c.id}>{c.name}</option>
+                      ))}
+                    </optgroup>
+                  )}
+                </select>
+              </div>
+              <div className="relative w-full">
+                <input 
+                  type="file" 
+                  accept="image/*" 
+                  multiple
+                  onChange={handleMultiFileUpload}
+                  className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+                />
+                <div className="w-full bg-kards-accent hover:brightness-125 transition-all text-center py-3 font-bold flex items-center justify-center gap-2">
+                  <Upload className="w-5 h-5" /> 选择文件并上传
+                </div>
+              </div>
+              <button 
+                onClick={() => setShowUploadModal(false)}
+                className="mt-4 text-sm text-gray-500 hover:text-white transition-colors"
+              >
+                取消
+              </button>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
@@ -516,14 +1249,29 @@ function DeckCard({ deck, selected, onClick }: DeckCardProps) {
           ${selected ? 'ring-4 ring-kards-gold ring-offset-4 ring-offset-kards-bg' : ''}
         `}>
           <img 
-            src={deck.isVeteran && mainData.veteranBack ? mainData.veteranBack : (mainData.defaultBack || '/assets/BasicBeta.png')} 
+            src={deck.cardBackUrl || mainData.defaultBack || '/assets/cardbacks/Common/BasicBeta.jpg'} 
             alt={deck.name}
             className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
-            onError={(e) => { e.currentTarget.src = '/assets/BasicBeta.png'; }}
+            onError={(e) => { 
+                if (e.currentTarget.getAttribute('data-error')) return;
+                e.currentTarget.setAttribute('data-error', 'true');
+                e.currentTarget.src = '/assets/cardbacks/Common/BasicBeta.jpg'; 
+            }}
           />
           
+          {/* Small flags at the bottom center */}
+          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-end gap-1 bg-black/70 p-1 rounded-sm backdrop-blur-sm border border-white/10 z-10">
+            <img src={getFlagUrl(mainData.flag)} className="w-5 h-3.5 object-contain" alt="main" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+            {allyData && (
+              <div className="flex items-end gap-1">
+                 <div className="w-[1px] h-3 bg-white/20" />
+                 <img src={getFlagUrl(allyData.flag)} className="w-3.5 h-2.5 object-contain opacity-80" alt="ally" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
+              </div>
+            )}
+          </div>
+
           {/* Warnings on card back */}
-          <div className="absolute inset-0 flex flex-col items-center justify-end p-2 pb-6 gap-1">
+          <div className="absolute inset-0 flex flex-col items-center justify-end p-2 pb-8 gap-1 pointer-events-none">
             {deck.warnings.map((w, i) => (
               <span key={i} className="bg-red-600/90 text-[10px] text-white px-2 py-0.5 font-bold uppercase tracking-tight shadow-lg whitespace-nowrap">
                 {w}
@@ -552,25 +1300,6 @@ function DeckCard({ deck, selected, onClick }: DeckCardProps) {
         <span className={`text-sm font-bold tracking-tight text-center ${selected ? 'text-kards-gold' : 'text-gray-300'}`}>
           {deck.name}
         </span>
-        <div className="flex items-center gap-2 px-2 py-1 bg-black/40 border border-white/5 rounded-sm">
-          <img 
-            src={getFlagUrl(mainData.flag)} 
-            alt={deck.mainNation} 
-            className="w-8 h-5 object-contain filter saturate-75"
-            onError={(e) => { e.currentTarget.style.display = 'none'; }}
-          />
-          {allyData && (
-            <>
-              <div className="w-[2px] h-3 bg-white/10" />
-              <img 
-                src={getFlagUrl(allyData.flag)} 
-                alt={deck.allyNation} 
-                className="w-6 h-4 object-contain filter saturate-50 brightness-75"
-                onError={(e) => { e.currentTarget.style.display = 'none'; }}
-              />
-            </>
-          )}
-        </div>
       </div>
     </motion.div>
   );
