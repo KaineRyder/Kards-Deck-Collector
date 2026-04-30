@@ -49,6 +49,7 @@ interface Deck {
   totalCards: number;
   warnings: string[];
   isArena: boolean;
+  tags?: string[];
 }
 
 // --- Icons & Labels ---
@@ -119,7 +120,7 @@ const NATION_FLAG_ASSETS: Record<string, string> = {
   fi: '/assets/flags/Finland.svg',
 };
 
-const BUILT_IN_TABLECLOTHS = Array.from({ length: 19 }, (_, i) => `/assets/tablecloths/tablecloth (${i + 1}).jpeg`);
+const BUILT_IN_TABLECLOTHS = Array.from({ length: 21 }, (_, i) => `/assets/tablecloths/tablecloth (${i + 1}).jpeg`);
 
 const getFlagUrl = (nationCode: string) => {
   return NATION_FLAG_ASSETS[nationCode] || `https://flagcdn.com/w80/${nationCode}.png`;
@@ -136,20 +137,20 @@ const parseDeck = (code: string) => {
       throw new Error("EMPTY_INPUT");
   }
 
-  if (!code.startsWith('%%') || code.startsWith('%%%')) {
+  if (!trimmed.startsWith('%%') || trimmed.startsWith('%%%')) {
     throw new Error('INVALID_PREFIX');
   }
 
-  const pipeIndex = code.indexOf('|');
+  const pipeIndex = trimmed.indexOf('|');
   if (pipeIndex === -1) {
     throw new Error('MISSING_SEPARATOR');
   }
 
-  if (code.indexOf('|', pipeIndex + 1) !== -1) {
+  if (trimmed.indexOf('|', pipeIndex + 1) !== -1) {
       throw new Error("EXTRA_SEPARATOR");
   }
 
-  const header = code.substring(2, pipeIndex);
+  const header = trimmed.substring(2, pipeIndex);
   if (header.length !== 2) {
     throw new Error('INVALID_COUNTRY_HEADER');
   }
@@ -175,7 +176,7 @@ const parseDeck = (code: string) => {
     warnings.push(`主国限制错误`);
   }
 
-  const cardData = code.substring(pipeIndex + 1);
+  const cardData = trimmed.substring(pipeIndex + 1);
   const sections = cardData.split(';');
   
   if (sections.length !== 4) {
@@ -278,6 +279,14 @@ export default function App() {
       return INITIAL_DECKS;
     }
   });
+  // --- State for Preloading ---
+  useEffect(() => {
+    Object.values(NATION_DATA).forEach(data => {
+      const img = new Image();
+      img.src = data.icon;
+    });
+  }, []);
+
   const [selectedDeckId, setSelectedDeckId] = useState<string | null>(null);
   const [showImportModal, setShowImportModal] = useState(decks.length === 0);
   const [importCode, setImportCode] = useState('');
@@ -285,6 +294,11 @@ export default function App() {
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
   const [showCardBackModal, setShowCardBackModal] = useState<string | null>(null);
   const [uploadError, setUploadError] = useState<string | null>(null);
+  const [addingTagToDeckId, setAddingTagToDeckId] = useState<string | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [filterMainNation, setFilterMainNation] = useState<Nation | 'All'>('All');
+  const [filterAllyNation, setFilterAllyNation] = useState<Nation | 'All'>('All');
+  const [filterTag, setFilterTag] = useState<string | 'All'>('All');
   
   const [customCategories, setCustomCategories] = useState<{id: string, name: string, backs: {id: string, url: string, name: string}[]}[]>(() => {
     try {
@@ -361,20 +375,11 @@ export default function App() {
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) { 
-      setTableclothUploadError('文件太大，请选择 5MB 以下的图片');
-      return;
-    }
-
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result as string;
       
-      // Limit to 4 custom tablecloths to prevent localstorage quota error
-      setCustomTablecloths(prev => {
-        const next = [...prev, result];
-        return next.slice(-4);
-      });
+      setCustomTablecloths(prev => [...prev, result]);
       setSelectedTablecloth(result);
       setTableclothUploadError(null);
     };
@@ -431,6 +436,12 @@ export default function App() {
       setImportCode('');
       setShowImportModal(false);
       setErrorStatus(null);
+      
+      // Reset filters so the newly added deck is visible
+      setSearchQuery('');
+      setFilterMainNation('All');
+      setFilterAllyNation('All');
+      setFilterTag('All');
     } catch (e: any) {
       setErrorStatus(ERROR_LOCALE[e.message] || e.message || '格式错误');
     }
@@ -463,9 +474,9 @@ export default function App() {
       return;
     }
 
-    const validFiles = files.filter(f => f.type.startsWith('image/') && f.size <= 2 * 1024 * 1024);
+    const validFiles = files.filter(f => f.type.startsWith('image/'));
     if (validFiles.length !== files.length) {
-      setUploadError(`跳过了 ${files.length - validFiles.length} 个格式有误或超过2MB的文件`);
+      setUploadError(`跳过了 ${files.length - validFiles.length} 个格式有误的文件`);
     } else {
       setUploadError(null);
     }
@@ -495,8 +506,32 @@ export default function App() {
     setShowUploadModal(false);
   };
 
+  const allTags = React.useMemo(() => {
+    const tags = new Set<string>();
+    decks.forEach(d => {
+      if (d.tags) d.tags.forEach(tag => tags.add(tag));
+    });
+    return Array.from(tags).sort();
+  }, [decks]);
+
+  let filteredDecks = [...decks];
+  if (searchQuery) {
+    filteredDecks = filteredDecks.filter(d => 
+      d.name.toLowerCase().includes(searchQuery.toLowerCase())
+    );
+  }
+  if (filterMainNation !== 'All') {
+    filteredDecks = filteredDecks.filter(d => d.mainNation === filterMainNation);
+  }
+  if (filterAllyNation !== 'All') {
+    filteredDecks = filteredDecks.filter(d => d.allyNation === filterAllyNation);
+  }
+  if (filterTag !== 'All') {
+    filteredDecks = filteredDecks.filter(d => d.tags && d.tags.includes(filterTag));
+  }
+
   // Sort: favorites first
-  const sortedDecks = [...decks].sort((a, b) => (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0));
+  const sortedDecks = filteredDecks.sort((a, b) => (b.isFavorite ? 1 : 0) - (a.isFavorite ? 1 : 0));
 
   return (
     <div className="flex flex-col h-screen military-noise relative">
@@ -514,6 +549,39 @@ export default function App() {
           </div>
           <nav className="flex items-center gap-6">
             <h1 className="text-[#a0a0a0] font-medium border-l border-white/10 pl-6 cursor-default">卡组记录器</h1>
+            <div className="flex items-center gap-3">
+              <input 
+                type="text" 
+                placeholder="搜索卡组..." 
+                value={searchQuery}
+                onChange={e => setSearchQuery(e.target.value)}
+                className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-3 py-1.5 focus:outline-none focus:border-kards-gold"
+              />
+              <select 
+                value={filterMainNation}
+                onChange={e => setFilterMainNation(e.target.value as Nation | 'All')}
+                className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold"
+              >
+                <option value="All">主国：全部</option>
+                {Object.entries(NATION_DATA).map(([key, data]) => data.isMainAllowed && <option key={key} value={key}>{data.label}</option>)}
+              </select>
+              <select 
+                value={filterAllyNation}
+                onChange={e => setFilterAllyNation(e.target.value as Nation | 'All')}
+                className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold"
+              >
+                <option value="All">盟国：全部</option>
+                {Object.keys(NATION_DATA).map(key => <option key={key} value={key}>{NATION_DATA[key as Nation].label}</option>)}
+              </select>
+              <select 
+                value={filterTag}
+                onChange={e => setFilterTag(e.target.value)}
+                className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold max-w-[120px]"
+              >
+                <option value="All">标签：全部</option>
+                {allTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+              </select>
+            </div>
           </nav>
         </div>
 
@@ -560,50 +628,59 @@ export default function App() {
         </aside>
 
         {/* Center Grid */}
-        <main 
-          className="flex-1 p-8 overflow-y-auto no-scrollbar relative min-w-[800px]"
-          style={{
-            backgroundImage: selectedTablecloth ? `url("${selectedTablecloth}")` : undefined,
-            backgroundSize: 'cover',
-            backgroundPosition: 'center',
-            backgroundAttachment: 'fixed',
-            backgroundColor: !selectedTablecloth ? 'rgba(0,0,0,0.2)' : undefined
-          }}
-        >
-          {/* Nation Background Background */}
-          {selectedDeck && (
+        <main className="flex-1 bg-[#0a0a0a] overflow-y-auto no-scrollbar relative">
+          <div 
+            className="min-h-full w-full relative flex flex-col items-center p-12 transition-all duration-700"
+            style={{
+              backgroundImage: selectedTablecloth ? `url("${selectedTablecloth}")` : undefined,
+              backgroundSize: 'cover',
+              backgroundPosition: 'center',
+              backgroundColor: !selectedTablecloth ? 'rgba(255,255,255,0.02)' : undefined
+            }}
+          >
+            {/* Nation Background Overlay - Moves with the table */}
             <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
-              {!selectedDeck.isArena && selectedDeck.allyNation ? (
-                <div className="flex items-center justify-center gap-32 w-full">
-                  <div className="flex-1 flex justify-end">
-                    <img 
-                      src={NATION_DATA[selectedDeck.mainNation].icon} 
-                      className={`w-[450px] h-[450px] object-contain transition-all duration-1000 ${selectedTablecloth ? 'opacity-40' : 'opacity-25'}`} 
-                      alt="main nation background"
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                    />
-                  </div>
-                  <div className="flex-1 flex justify-start">
-                    <img 
-                      src={NATION_DATA[selectedDeck.allyNation].icon} 
-                      className={`w-[350px] h-[350px] object-contain transition-all duration-1000 ${selectedTablecloth ? 'opacity-30' : 'opacity-20'}`} 
-                      alt="ally nation background"
-                      onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                    />
-                  </div>
-                </div>
-              ) : (
-                <img 
-                  src={NATION_DATA[selectedDeck.mainNation].icon} 
-                  className={`w-[500px] h-[500px] object-contain transition-all duration-1000 ${selectedTablecloth ? 'opacity-40' : 'opacity-25'}`} 
-                  alt="nation background"
-                  onError={(e) => { e.currentTarget.style.display = 'none'; }}
-                />
-              )}
+              <div className="absolute inset-0 bg-black/20" />
+              <AnimatePresence>
+                {selectedDeck && (
+                  <motion.div 
+                    key={selectedDeck.id}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    transition={{ duration: 0.25 }}
+                    className="absolute inset-0 flex items-center justify-center"
+                  >
+                    {!selectedDeck.isArena && selectedDeck.allyNation ? (
+                      <div className="flex items-center justify-center gap-32 w-full">
+                        <div className="flex-1 flex justify-end">
+                          <img 
+                            src={NATION_DATA[selectedDeck.mainNation].icon} 
+                            className={`w-[450px] h-[450px] object-contain transition-all duration-300 ${selectedTablecloth ? 'opacity-30' : 'opacity-20'}`} 
+                            alt="main"
+                          />
+                        </div>
+                        <div className="flex-1 flex justify-start">
+                          <img 
+                            src={NATION_DATA[selectedDeck.allyNation].icon} 
+                            className={`w-[350px] h-[350px] object-contain transition-all duration-300 ${selectedTablecloth ? 'opacity-25' : 'opacity-15'}`} 
+                            alt="ally"
+                          />
+                        </div>
+                      </div>
+                    ) : (
+                      <img 
+                        src={NATION_DATA[selectedDeck.mainNation].icon} 
+                        className={`w-[500px] h-[500px] object-contain transition-all duration-300 ${selectedTablecloth ? 'opacity-30' : 'opacity-20'}`} 
+                        alt="nation"
+                      />
+                    )}
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
-          )}
-          
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-y-12 gap-x-8 max-w-7xl mx-auto relative z-10">
+            
+            <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-y-12 gap-x-8 max-w-7xl w-full relative z-10">
             {sortedDecks.map((deck) => (
               <DeckCard 
                 key={deck.id}
@@ -624,7 +701,8 @@ export default function App() {
               <span className="mt-2 text-sm text-gray-500 group-hover:text-kards-gold">导入新卡组</span>
             </button>
           </div>
-        </main>
+        </div>
+      </main>
 
         {/* Right Details Panel */}
         <aside className="w-[320px] bg-[#1a1a1a] border-l border-white/10 flex flex-col z-10 overflow-hidden">
@@ -675,17 +753,56 @@ export default function App() {
                         </div>
                       )}
                     </div>
-
-                    {NATION_DATA[selectedDeck.mainNation].veteranBack && (
-                        <div className="absolute inset-x-0 top-1/2 -translate-y-1/2 text-center opacity-0 group-hover:opacity-100 transition-opacity z-20 pointer-events-none">
-                            <span className="text-[10px] text-white bg-black/80 px-2 py-1 rounded">点击切换卡背</span>
-                        </div>
-                    )}
                   </div>
                 </div>
               </div>
 
               <div className="p-6 pt-0 border-t border-white/5 bg-[#1a1a1a] space-y-4">
+                <div className="flex flex-wrap gap-2 items-center">
+                  <div className="flex items-center gap-2">
+                    {addingTagToDeckId === selectedDeck.id ? (
+                      <input 
+                        type="text"
+                        autoFocus
+                        className="bg-black border border-kards-gold px-2 py-1 text-xs text-white max-w-[100px] focus:outline-none"
+                        placeholder="输入标签..."
+                        onKeyDown={(e) => {
+                          if (e.key === 'Enter') {
+                            const newTag = e.currentTarget.value.trim();
+                            if (newTag) {
+                              setDecks(decks.map(d => d.id === selectedDeck.id ? { ...d, tags: Array.from(new Set([...(d.tags || []), newTag])) } : d));
+                            }
+                            setAddingTagToDeckId(null);
+                          } else if (e.key === 'Escape') {
+                            setAddingTagToDeckId(null);
+                          }
+                        }}
+                        onBlur={() => setAddingTagToDeckId(null)}
+                      />
+                    ) : (
+                      <button 
+                        onClick={() => setAddingTagToDeckId(selectedDeck.id)}
+                        className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-xs px-2 py-1 rounded text-gray-400 font-bold"
+                      >
+                        <Plus className="w-3 h-3" /> 添加标签
+                      </button>
+                    )}
+                  </div>
+                  {selectedDeck.tags?.map(tag => (
+                    <div key={tag} className="flex items-center gap-1 bg-zinc-800 border border-white/10 text-xs px-2 py-1 rounded text-gray-300">
+                      <span>{tag}</span>
+                      <button 
+                        onClick={() => {
+                          setDecks(decks.map(d => d.id === selectedDeck.id ? { ...d, tags: d.tags?.filter(t => t !== tag) } : d));
+                        }}
+                        className="hover:text-red-400 transition-colors ml-1"
+                      >
+                        <X className="w-3 h-3" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
                 <div className="flex gap-2">
                   <ActionButton 
                     onClick={() => handleDeleteDeck(selectedDeck.id)}
