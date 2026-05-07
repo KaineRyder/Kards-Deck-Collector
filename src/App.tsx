@@ -36,6 +36,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
 import Cropper from 'react-easy-crop';
 import getCroppedImg from './lib/cropImage';
+import { generateLightModeColors } from './lib/colorUtils';
 
 // --- Types ---
 type Nation = 'Germany' | 'Soviet' | 'USA' | 'Japan' | 'Britain' | 'Finland' | 'Italy' | 'France' | 'Poland';
@@ -67,8 +68,10 @@ interface AppSettings {
   importBoxOpacity: number;
   logoSize: number;
   logoOpacity: number;
-  isDarkMode: boolean;
+  displayMode: 'dark' | 'light' | 'system';
+  lightThemeColor: string;
   uiScale: number;
+  deckGap: number;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -76,8 +79,10 @@ const DEFAULT_SETTINGS: AppSettings = {
   importBoxOpacity: 0.6,
   logoSize: 450,
   logoOpacity: 0.25,
-  isDarkMode: true,
-  uiScale: 1.0
+  displayMode: 'dark',
+  lightThemeColor: '#dcd7c9',
+  uiScale: 1.0,
+  deckGap: 0.5
 };
 
 // --- Icons & Labels ---
@@ -353,14 +358,18 @@ export default function App() {
         const loadedCategories = await getOrMigrate<any[]>('kards_custom_categories', []);
         const loadedSelectedTablecloth = await getOrMigrate<string | null>('kards_selected_tablecloth', null);
         const loadedCustomTablecloths = await getOrMigrate<string[]>('kards_custom_tablecloths', []);
-        const loadedSettings = await getOrMigrate<AppSettings>('kards_settings', DEFAULT_SETTINGS);
+        const loadedSettingsRaw = await getOrMigrate<any>('kards_settings', DEFAULT_SETTINGS);
+        if (loadedSettingsRaw.isDarkMode !== undefined && loadedSettingsRaw.displayMode === undefined) {
+          loadedSettingsRaw.displayMode = loadedSettingsRaw.isDarkMode ? 'dark' : 'light';
+          delete loadedSettingsRaw.isDarkMode;
+        }
 
         setDecks(loadedDecks);
         setCollections(loadedCollections);
         setCustomCategories(loadedCategories);
         setSelectedTablecloth(loadedSelectedTablecloth);
         setCustomTablecloths(loadedCustomTablecloths);
-        setSettings({ ...DEFAULT_SETTINGS, ...loadedSettings });
+        setSettings({ ...DEFAULT_SETTINGS, ...loadedSettingsRaw });
         setDataLoaded(true);
       } catch (e) {
         console.error("Failed to load data", e);
@@ -385,20 +394,85 @@ export default function App() {
     localforage.setItem('kards_custom_categories', customCategories).catch(console.error);
   }, [customCategories, dataLoaded]);
 
+  const [effectiveIsDarkMode, setEffectiveIsDarkMode] = useState(true);
+
   useEffect(() => {
     if (!dataLoaded) return;
     localforage.setItem('kards_settings', settings).catch(console.error);
 
-    // Apply dark mode class to body
-    if (settings.isDarkMode) {
+    let isDark = true;
+    if (settings.displayMode === 'system') {
+      isDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } else {
+      isDark = settings.displayMode === 'dark';
+    }
+    
+    setEffectiveIsDarkMode(isDark);
+
+    if (isDark) {
       document.body.classList.add('dark');
+      document.body.classList.remove('light');
+      document.documentElement.classList.add('dark');
+      document.documentElement.classList.remove('light');
+      
+      // Clear inline variables to allow .dark CSS rules to apply
+      const varsToRemove = [
+        '--color-kards-bg', '--color-kards-panel', '--color-kards-panel-alt',
+        '--color-kards-panel-hover', '--color-kards-input-bg', '--color-kards-modal-bg',
+        '--color-kards-modal-overlay', '--bg-pattern', '--rgb-panel-overlay', '--rgb-panel-overlay-inv'
+      ];
+      varsToRemove.forEach(v => document.documentElement.style.removeProperty(v));
     } else {
       document.body.classList.remove('dark');
+      document.body.classList.add('light');
+      document.documentElement.classList.remove('dark');
+      document.documentElement.classList.add('light');
+      
+      // Apply custom light mode colors
+      const lightVars = generateLightModeColors(settings.lightThemeColor || '#dcd7c9');
+      Object.entries(lightVars).forEach(([key, value]) => {
+        document.documentElement.style.setProperty(key, value);
+      });
     }
 
     // Apply border radius CSS variable
     document.documentElement.style.setProperty('--radius-base', `${settings.borderRadius}px`);
   }, [settings, dataLoaded]);
+
+  useEffect(() => {
+    const mediaQuery = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = (e: MediaQueryListEvent) => {
+      if (settings.displayMode === 'system') {
+        const isDark = e.matches;
+        setEffectiveIsDarkMode(isDark);
+        if (isDark) {
+          document.body.classList.add('dark');
+          document.body.classList.remove('light');
+          document.documentElement.classList.add('dark');
+          document.documentElement.classList.remove('light');
+          
+          const varsToRemove = [
+            '--color-kards-bg', '--color-kards-panel', '--color-kards-panel-alt',
+            '--color-kards-panel-hover', '--color-kards-input-bg', '--color-kards-modal-bg',
+            '--color-kards-modal-overlay', '--bg-pattern', '--rgb-panel-overlay', '--rgb-panel-overlay-inv'
+          ];
+          varsToRemove.forEach(v => document.documentElement.style.removeProperty(v));
+        } else {
+          document.body.classList.remove('dark');
+          document.body.classList.add('light');
+          document.documentElement.classList.remove('dark');
+          document.documentElement.classList.add('light');
+          
+          const lightVars = generateLightModeColors(settings.lightThemeColor || '#dcd7c9');
+          Object.entries(lightVars).forEach(([key, value]) => {
+            document.documentElement.style.setProperty(key, value);
+          });
+        }
+      }
+    };
+    mediaQuery.addEventListener('change', onChange);
+    return () => mediaQuery.removeEventListener('change', onChange);
+  }, [settings.displayMode, settings.lightThemeColor]);
 
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
@@ -708,15 +782,15 @@ export default function App() {
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
             <img 
-              src="/assets/kards_logos/Common/KardsLogoBeige.png" 
+              src={effectiveIsDarkMode ? "/assets/kards_logos/Common/KardsLogoBeige.png" : "/assets/kards_logos/Common/KardsLogoBlack.png"} 
               alt="KARDS Logo" 
-              className="h-16 w-auto"
+              className="h-16 w-auto transition-opacity"
               onError={(e) => { e.currentTarget.style.display = 'none'; }}
             />
             <span className="text-xl font-bold tracking-widest text-kards-text sr-only">KARDS</span>
           </div>
           <nav className="flex items-center gap-6">
-            <h1 className="text-kards-text-muted font-medium border-l border-kards-border pl-6 cursor-default">
+            <h1 className="text-kards-text font-bold border-l border-kards-border pl-6 cursor-default tracking-widest">
               {activeMenu === 'collection' ? '合集管理' : '卡组记录器'}
             </h1>
             <div className="flex items-center gap-3">
@@ -762,17 +836,17 @@ export default function App() {
         <div className="flex items-center gap-3">
           <button 
             onClick={() => setShowTableclothModal(true)}
-            className="p-2 hover:bg-white/5 transition-colors group relative"
+            className="p-2 hover:bg-kards-panel-hover transition-colors group relative"
             title="切换桌布"
           >
             <Palette className="w-5 h-5 text-kards-text-muted group-hover:text-kards-gold" />
           </button>
-          <button className="p-2 hover:bg-white/5 transition-colors group">
-            <User className="w-5 h-5 text-kards-text-muted group-hover:text-white" />
+          <button className="p-2 hover:bg-kards-panel-hover transition-colors group">
+            <User className="w-5 h-5 text-kards-text-muted group-hover:text-kards-text" />
           </button>
           <button 
             onClick={() => setShowSettingsModal(true)}
-            className="p-2 hover:bg-white/5 transition-colors group"
+            className="p-2 hover:bg-kards-panel-hover transition-colors group"
             title="应用设置"
           >
             <Settings className="w-5 h-5 text-kards-text-muted group-hover:text-kards-gold" />
@@ -816,7 +890,7 @@ export default function App() {
           <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none z-0">
             <div className="absolute inset-0 bg-black/20" />
             <AnimatePresence>
-              {selectedDeck && (
+              {selectedDeck && activeMenu !== 'collection' && (
                 <motion.div 
                   key={selectedDeck.id}
                   initial={{ opacity: 0 }}
@@ -864,7 +938,7 @@ export default function App() {
                 style={{ 
                   display: 'grid',
                   gridTemplateColumns: `repeat(auto-fill, minmax(${10 * settings.uiScale}rem, 1fr))`,
-                  gap: `${0.5 * settings.uiScale}rem`,
+                  gap: `${settings.deckGap * settings.uiScale}rem`,
                   justifyItems: 'center'
                 }}
                 className="max-w-7xl w-full relative"
@@ -886,16 +960,14 @@ export default function App() {
                 >
                   <div 
                     style={{ 
-                      backgroundColor: settings.isDarkMode 
-                        ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` 
-                        : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                      backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})`,
                       width: `${10 * settings.uiScale}rem`
                     }}
-                    className="aspect-[5/7] military-border backdrop-blur-sm flex items-center justify-center group-hover:border-kards-gold transition-all rounded-lg"
+                    className="aspect-[5/7] military-border backdrop-blur-sm flex items-center justify-center group-hover:border-kards-gold transition-all rounded-lg shadow-[0_4px_12px_rgba(0,0,0,0.3)]"
                   >
-                    <Plus style={{ width: `${3 * settings.uiScale}rem`, height: `${3 * settings.uiScale}rem` }} className="text-gray-600 group-hover:text-kards-gold" />
+                    <Plus style={{ width: `${3 * settings.uiScale}rem`, height: `${3 * settings.uiScale}rem` }} className="text-kards-text-muted group-hover:text-kards-gold transition-colors" />
                   </div>
-                  <span className="mt-2 text-sm text-gray-500 group-hover:text-kards-gold" style={{ fontSize: `${0.875 * settings.uiScale}rem` }}>导入新卡组</span>
+                  <span className="mt-4 text-sm font-bold text-kards-text-muted bg-kards-panel/80 px-4 py-1 rounded shadow-md border border-kards-border/50 backdrop-blur-md group-hover:text-kards-gold group-hover:border-kards-gold/50 group-hover:shadow-kards-gold/20 transition-all" style={{ fontSize: `${0.875 * settings.uiScale}rem` }}>导入新卡组</span>
                 </button>
               </div>
             )}
@@ -903,8 +975,8 @@ export default function App() {
             {activeMenu === 'collection' && (
               <div className="max-w-4xl w-full relative">
                 <div className="flex justify-between items-center mb-8">
-                  <h2 className="text-2xl font-bold tracking-widest text-kards-text flex items-center gap-3">
-                    <Library className="w-8 h-8 text-kards-gold" /> 卡组合集
+                  <h2 className="text-2xl font-bold tracking-widest text-kards-text flex items-center gap-3 bg-kards-panel/80 px-6 py-2 rounded-lg border border-kards-border/50 shadow-lg backdrop-blur-md">
+                    <Library className="w-8 h-8 text-kards-gold drop-shadow-md" /> 卡组合集
                   </h2>
                   <button 
                     onClick={() => {
@@ -943,39 +1015,35 @@ export default function App() {
                       }}
                       className="border border-kards-border group/col relative overflow-hidden shadow-xl rounded-lg transition-colors"
                       style={{ 
-                        backgroundColor: settings.isDarkMode 
-                          ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` 
-                          : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                        backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})`,
                         backdropFilter: `blur(${settings.importBoxOpacity * 12}px)`,
                         zIndex: expandedCollectionId === col.id ? 20 : 10 
                       }}
                     >
                       <div 
-                        className={`p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors z-10 relative ${expandedCollectionId !== col.id ? 'active:bg-white/10 active:cursor-move' : ''}`}
+                        className={`p-4 flex items-center justify-between cursor-pointer hover:bg-kards-panel-hover transition-colors z-10 relative ${expandedCollectionId !== col.id ? 'active:bg-kards-panel active:cursor-move' : ''}`}
                         style={{ 
-                          backgroundColor: settings.isDarkMode 
-                            ? `rgba(255, 255, 255, ${settings.importBoxOpacity * 0.05})` 
-                            : `rgba(0, 0, 0, ${settings.importBoxOpacity * 0.05})`,
+                          backgroundColor: `rgba(var(--rgb-panel-overlay-inv), ${settings.importBoxOpacity * 0.05})`,
                         }}
                         onClick={() => setExpandedCollectionId(expandedCollectionId === col.id ? null : col.id)}
                       >
                         <div className="flex items-center gap-4 pointer-events-none">
-                          <ChevronRight className={`w-5 h-5 text-gray-500 transition-transform ${expandedCollectionId === col.id ? 'rotate-90' : ''}`} />
+                          <ChevronRight className={`w-5 h-5 text-kards-text-muted transition-transform ${expandedCollectionId === col.id ? 'rotate-90' : ''}`} />
                           <div className="flex items-center gap-3">
-                            <span className="text-lg font-bold text-gray-200">{col.name}</span>
-                            <span className="text-xs text-gray-500 font-mono">({col.deckIds.length} 个卡组)</span>
+                            <span className="text-lg font-bold text-kards-text drop-shadow-md">{col.name}</span>
+                            <span className="text-xs text-kards-text-muted font-mono drop-shadow-sm">({col.deckIds.length} 个卡组)</span>
                           </div>
                         </div>
                         <div className="flex items-center gap-3 opacity-0 group-hover/col:opacity-100 transition-opacity">
                           {expandedCollectionId !== col.id && (
-                            <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest hidden sm:block pointer-events-none mr-2">拖动排序</div>
+                            <div className="text-[10px] text-kards-text-muted uppercase font-bold tracking-widest hidden sm:block pointer-events-none mr-2">拖动排序</div>
                           )}
                           <button 
                             onClick={(e) => {
                               e.stopPropagation();
                               setCollections(collections.map(c => c.id === col.id ? { ...c, isFavorite: !c.isFavorite } : c));
                             }}
-                            className={`p-2 hover:bg-white/10 rounded transition-colors ${col.isFavorite ? 'text-kards-gold' : 'text-gray-500'} pointer-events-auto`}
+                            className={`p-2 hover:bg-kards-panel-hover rounded transition-colors ${col.isFavorite ? 'text-kards-gold' : 'text-kards-text-muted'} pointer-events-auto`}
                           >
                             <Star className={`w-5 h-5 ${col.isFavorite ? 'fill-current' : ''}`} />
                           </button>
@@ -985,7 +1053,7 @@ export default function App() {
                               setCollectionToRename(col);
                               setRenameCollectionName(col.name);
                             }}
-                            className="p-2 hover:bg-white/10 text-gray-500 hover:text-white rounded transition-colors pointer-events-auto"
+                            className="p-2 hover:bg-kards-panel-hover text-kards-text-muted hover:text-kards-text rounded transition-colors pointer-events-auto"
                           >
                             <Edit2 className="w-5 h-5" />
                           </button>
@@ -994,7 +1062,7 @@ export default function App() {
                               e.stopPropagation();
                               setCollectionToDelete(col);
                             }}
-                            className="p-2 hover:bg-red-500/20 text-gray-500 hover:text-red-500 rounded transition-colors pointer-events-auto"
+                            className="p-2 hover:bg-red-500/20 text-kards-text-muted hover:text-red-500 rounded transition-colors pointer-events-auto"
                           >
                             <Trash2 className="w-5 h-5" />
                           </button>
@@ -1007,12 +1075,12 @@ export default function App() {
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            style={{ backgroundColor: `rgba(0, 0, 0, ${settings.importBoxOpacity * 0.3})` }}
+                            style={{ backgroundColor: `rgba(var(--rgb-panel-overlay-inv), ${settings.importBoxOpacity * 0.3})` }}
                             className="transition-colors"
                           >
-                            <div className="p-4 border-t border-white/5 space-y-2">
+                            <div className="p-4 border-t border-kards-border space-y-2">
                               {col.deckIds.length === 0 ? (
-                                <div className="text-center py-8 text-gray-600 italic text-sm">
+                                <div className="text-center py-8 text-kards-text-muted italic text-sm">
                                   合集为空，请添加卡组
                                 </div>
                               ) : (
@@ -1038,8 +1106,8 @@ export default function App() {
                                             }
                                           }
                                         }}
-                                        style={{ backgroundColor: settings.isDarkMode ? `rgba(255, 255, 255, ${settings.importBoxOpacity * 0.1})` : `rgba(0, 0, 0, ${settings.importBoxOpacity * 0.05})` }}
-                                        className="flex items-center justify-between p-3 hover:bg-white/10 transition-colors group/item cursor-move active:bg-white/20 active:scale-[1.01] z-0 active:z-10 relative border-b border-white/5"
+                                        style={{ backgroundColor: `rgba(var(--rgb-panel-overlay-inv), ${settings.importBoxOpacity * 0.1})` }}
+                                        className="flex items-center justify-between p-3 hover:bg-kards-panel-hover transition-colors group/item cursor-move active:bg-kards-panel-border active:scale-[1.01] z-0 active:z-10 relative border-b border-kards-border"
                                       >
                                         <div className="flex items-center gap-4 flex-1 pointer-events-none">
                                           <div className="flex flex-col gap-0.5">
@@ -1049,21 +1117,21 @@ export default function App() {
                                             </div>
                                           </div>
                                           <div className="flex flex-col">
-                                            <span className="font-bold text-gray-300">{deck.name}</span>
-                                            <span className="text-[10px] font-mono text-gray-600 truncate max-w-[200px]">{deck.code}</span>
+                                            <span className="font-bold text-kards-text drop-shadow-sm">{deck.name}</span>
+                                            <span className="text-[10px] font-mono text-kards-text-muted drop-shadow-sm truncate max-w-[200px]">{deck.code}</span>
                                           </div>
                                         </div>
                                         
                                         <div className="flex items-center gap-2">
                                           <div className="flex items-center gap-1 mr-4 opacity-0 group-hover/item:opacity-100 transition-opacity">
-                                            <div className="text-[10px] text-gray-500 uppercase font-bold tracking-widest hidden sm:block">拖动排序</div>
+                                            <div className="text-[10px] text-kards-text-muted uppercase font-bold tracking-widest hidden sm:block">拖动排序</div>
                                           </div>
                                           <button 
                                             onClick={(e) => {
                                               e.stopPropagation();
                                               handleGetDeckImage(deck);
                                             }}
-                                            className="p-2 text-kards-gold hover:text-white transition-colors pointer-events-auto"
+                                            className="p-2 text-kards-gold hover:text-kards-text transition-colors pointer-events-auto"
                                             title="获取卡组图片"
                                           >
                                             <ImageIcon className="w-4 h-4" />
@@ -1073,7 +1141,7 @@ export default function App() {
                                               e.stopPropagation();
                                               setCollections(collections.map(c => c.id === col.id ? { ...c, deckIds: c.deckIds.filter(id => id !== deckId) } : c));
                                             }}
-                                            className="p-2 text-gray-600 hover:text-red-500 transition-colors pointer-events-auto"
+                                            className="p-2 text-kards-text-muted hover:text-red-500 transition-colors pointer-events-auto"
                                             title="移出合集"
                                           >
                                             <X className="w-4 h-4" />
@@ -1087,7 +1155,7 @@ export default function App() {
                               
                               <button 
                                 onClick={() => setShowAddDeckToCollectionModal(col.id)}
-                                className="w-full py-3 mt-4 border border-dashed border-white/20 text-gray-500 hover:text-kards-gold hover:border-kards-gold transition-all text-sm font-bold flex items-center justify-center gap-2"
+                                className="w-full py-3 mt-4 border border-dashed border-kards-border text-kards-text-muted hover:text-kards-gold hover:border-kards-gold transition-all text-sm font-bold flex items-center justify-center gap-2"
                               >
                                 <Plus className="w-4 h-4" /> 添加卡组到此合集
                               </button>
@@ -1101,7 +1169,7 @@ export default function App() {
                   {collections.length === 0 && (
                     <div 
                       style={{ 
-                        backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                        backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})`,
                         backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
                       }}
                       className="text-center py-24 military-border rounded-xl shadow-2xl relative overflow-hidden"
@@ -1109,7 +1177,7 @@ export default function App() {
                       <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none" />
                       <Library className="w-16 h-16 text-kards-gold/30 mx-auto mb-6 relative z-10" />
                       <p className="text-kards-text font-black tracking-[0.4em] text-2xl mb-3 relative z-10">暂无合集</p>
-                      <p className="text-gray-500 text-sm font-medium tracking-widest relative z-10">点击右上角按钮开始构筑您的卡组合集</p>
+                      <p className="text-kards-text-muted text-sm font-medium tracking-widest relative z-10">点击右上角按钮开始构筑您的卡组合集</p>
                     </div>
                   )}
                 </div>
@@ -1123,9 +1191,7 @@ export default function App() {
           <aside 
             className="w-[320px] border-l border-kards-border flex flex-col z-10 overflow-hidden transition-colors"
             style={{ 
-              backgroundColor: settings.isDarkMode 
-                ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` 
-                : `rgba(26, 26, 26, ${settings.importBoxOpacity})` 
+              backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})` 
             }}
           >
             {selectedDeck ? (
@@ -1149,7 +1215,7 @@ export default function App() {
                     onClick={() => setShowCardBackModal(selectedDeck.id)}
                   >
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center backdrop-blur-sm rounded-md">
-                        <span className="text-white font-bold tracking-widest text-sm flex items-center gap-2">
+                        <span className="text-kards-text font-bold tracking-widest text-sm flex items-center gap-2">
                           <ImageIcon className="w-4 h-4" />
                           更换卡背
                         </span>
@@ -1166,7 +1232,7 @@ export default function App() {
                       />
                     
                     {/* Small flags at the bottom left */}
-                    <div className="absolute bottom-1.5 left-1.5 flex items-end gap-1 bg-black/70 p-1 rounded-sm backdrop-blur-sm border border-white/10 z-10">
+                    <div className="absolute bottom-1.5 left-1.5 flex items-end gap-1 bg-black/70 p-1 rounded-sm backdrop-blur-sm border border-kards-border z-10">
                       <img src={getFlagUrl(NATION_DATA[selectedDeck.mainNation].flag)} className="w-5 h-3.5 object-contain" alt="main" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
                       {selectedDeck.allyNation && (
                         <div className="flex items-end gap-1">
@@ -1186,7 +1252,7 @@ export default function App() {
                       <input 
                         type="text"
                         autoFocus
-                        className="bg-black border border-kards-gold px-2 py-1 text-xs text-white max-w-[100px] focus:outline-none"
+                        className="bg-black border border-kards-gold px-2 py-1 text-xs text-kards-text max-w-[100px] focus:outline-none"
                         placeholder="输入标签..."
                         onKeyDown={(e) => {
                           if (e.key === 'Enter') {
@@ -1204,14 +1270,14 @@ export default function App() {
                     ) : (
                       <button 
                         onClick={() => setAddingTagToDeckId(selectedDeck.id)}
-                        className="flex items-center gap-1 bg-zinc-800 hover:bg-zinc-700 text-xs px-2 py-1 rounded text-gray-400 font-bold"
+                        className="flex items-center gap-1 bg-kards-panel hover:bg-kards-panel-hover border border-kards-border text-kards-text text-xs px-2 py-1 rounded text-kards-text-muted font-bold"
                       >
                         <Plus className="w-3 h-3" /> 添加标签
                       </button>
                     )}
                   </div>
                   {selectedDeck.tags?.map(tag => (
-                    <div key={tag} className="flex flex-shrink-0 items-center gap-1 bg-zinc-800 border border-white/10 text-xs px-2 py-1 rounded text-gray-300 whitespace-nowrap">
+                    <div key={tag} className="flex flex-shrink-0 items-center gap-1 bg-kards-panel border border-kards-border text-xs px-2 py-1 rounded text-kards-text whitespace-nowrap">
                       <span>{tag}</span>
                       <button 
                         onClick={() => {
@@ -1229,32 +1295,32 @@ export default function App() {
                   <ActionButton 
                     onClick={() => handleDeleteDeck(selectedDeck.id)}
                     icon={<Trash2 className="w-5 h-5" />}
-                    className="bg-zinc-800 hover:bg-kards-accent text-gray-400 hover:text-white"
+                    className="bg-kards-panel hover:bg-kards-accent text-white border border-kards-border hover:text-white"
                   />
                   <ActionButton 
                     onClick={() => handleCopyCode(selectedDeck.code)}
                     icon={<Copy className="w-5 h-5" />}
-                    className="bg-zinc-800 hover:bg-zinc-700"
+                    className="bg-kards-panel hover:bg-kards-panel-hover border border-kards-border text-kards-text"
                   />
                   <ActionButton 
                     onClick={() => handleGetDeckImage(selectedDeck)}
                     icon={<ImageIcon className="w-5 h-5" />}
-                    className="bg-zinc-800 hover:bg-zinc-700 text-kards-gold"
+                    className="bg-kards-panel hover:bg-kards-panel-hover border border-kards-border text-kards-text text-kards-gold"
                   />
                   <ActionButton 
                     onClick={() => toggleFavorite(selectedDeck.id)}
                     icon={<Star className={`w-5 h-5 ${selectedDeck.isFavorite ? 'fill-kards-gold text-kards-gold' : ''}`} />}
-                    className="bg-zinc-800 hover:bg-zinc-700"
+                    className="bg-kards-panel hover:bg-kards-panel-hover border border-kards-border text-kards-text"
                   />
                 </div>
                 
-                <button className="w-full bg-zinc-200 text-black font-bold py-3 uppercase tracking-widest text-sm hover:bg-white transition-colors flex items-center justify-center gap-2 rounded-md">
+                <button className="w-full bg-kards-text text-kards-bg font-bold py-3 uppercase tracking-widest text-sm hover:opacity-80 transition-colors flex items-center justify-center gap-2 rounded-md">
                   <Settings className="w-4 h-4" /> 编辑卡组
                 </button>
               </div>
             </motion.div>
           ) : (
-            <div className="flex-1 flex items-center justify-center text-gray-600">
+            <div className="flex-1 flex items-center justify-center text-kards-text-muted">
               请选择一个卡组
             </div>
           )}
@@ -1271,7 +1337,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={handleCloseImportModal}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -1279,13 +1345,13 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative w-full max-w-md military-border p-8 shadow-2xl transition-all"
               style={{ 
-                backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})`,
                 backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
               }}
             >
               <button 
                 onClick={handleCloseImportModal}
-                className="absolute top-4 right-4 text-gray-500 hover:text-white"
+                className="absolute top-4 right-4 text-kards-text-muted hover:text-kards-text"
               >
                 <X className="w-6 h-6" />
               </button>
@@ -1296,15 +1362,15 @@ export default function App() {
               
               <div className="space-y-6">
                 <div>
-                  <label className="block text-xs uppercase tracking-wider text-gray-500 mb-2 font-bold">卡组名称（选填）</label>
+                  <label className="block text-xs uppercase tracking-wider text-kards-text-muted mb-2 font-bold">卡组名称（选填）</label>
                   <input 
                     type="text" 
                     value={importName || ''}
                     onChange={(e) => setImportName(e.target.value)}
                     placeholder="输入卡组名称，留空则使用默认名称"
-                    className="w-full bg-black/50 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-kards-gold transition-colors mb-4 rounded-md"
+                    className="w-full bg-kards-input-bg border border-kards-border px-4 py-3 text-kards-text focus:outline-none focus:border-kards-gold transition-colors mb-4 rounded-md"
                   />
-                  <label className="block text-xs uppercase tracking-wider text-gray-500 mb-2 font-bold">输入卡组码</label>
+                  <label className="block text-xs uppercase tracking-wider text-kards-text-muted mb-2 font-bold">输入卡组码</label>
                   <input 
                     type="text" 
                     value={importCode || ''}
@@ -1313,7 +1379,7 @@ export default function App() {
                       setErrorStatus(null);
                     }}
                     placeholder="例如: %%53|5ucCbn;5W6L..."
-                    className={`w-full bg-black/50 border ${errorStatus ? 'border-red-500' : 'border-white/10'} px-4 py-3 text-kards-gold font-mono focus:outline-none focus:border-kards-gold transition-colors rounded-md`}
+                    className={`w-full bg-kards-input-bg border ${errorStatus ? 'border-red-500' : 'border-kards-border'} px-4 py-3 text-kards-gold font-mono focus:outline-none focus:border-kards-gold transition-colors rounded-md`}
                     autoFocus
                   />
                   {errorStatus && (
@@ -1326,7 +1392,7 @@ export default function App() {
                 <div className="flex gap-4 pt-4">
                   <button 
                     onClick={handleCloseImportModal}
-                    className="flex-1 border border-white/10 py-3 font-bold hover:bg-white/5 transition-colors rounded-md"
+                    className="flex-1 border border-kards-border py-3 font-bold hover:bg-kards-panel-hover transition-colors rounded-md"
                   >
                     取消
                   </button>
@@ -1352,7 +1418,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowTableclothModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -1360,19 +1426,17 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative w-full max-w-4xl max-h-[80vh] military-border p-8 shadow-2xl flex flex-col z-50 rounded-xl transition-colors"
               style={{ 
-                backgroundColor: settings.isDarkMode 
-                  ? `rgba(20, 20, 20, ${settings.importBoxOpacity})` 
-                  : `rgba(26, 26, 26, ${settings.importBoxOpacity})` 
+                backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})` 
               }}
             >
               <button 
                 onClick={() => setShowTableclothModal(false)}
-                className="absolute top-4 right-4 text-gray-500 hover:text-white"
+                className="absolute top-4 right-4 text-kards-text-muted hover:text-kards-text"
               >
                 <X className="w-6 h-6" />
               </button>
               
-              <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-4">
+              <div className="flex items-center justify-between mb-6 border-b border-kards-border pb-4">
                 <h3 className="text-2xl font-bold flex items-center gap-3">
                   <Palette className="w-6 h-6 text-kards-gold" /> 切换桌布
                 </h3>
@@ -1399,9 +1463,9 @@ export default function App() {
                   {/* Default / Empty Option */}
                   <div 
                     onClick={() => setSelectedTablecloth(null)}
-                    className={`aspect-video military-border flex flex-col items-center justify-center cursor-pointer transition-all ${!selectedTablecloth ? 'border-kards-gold bg-kards-gold/10' : 'bg-kards-bg hover:bg-white/5 opacity-60 hover:opacity-100'}`}
+                    className={`aspect-video military-border flex flex-col items-center justify-center cursor-pointer transition-all ${!selectedTablecloth ? 'border-kards-gold bg-kards-gold/10' : 'bg-kards-bg hover:bg-kards-panel-hover opacity-60 hover:opacity-100'}`}
                   >
-                    <ImageIcon className="w-8 h-8 mb-2 text-gray-500" />
+                    <ImageIcon className="w-8 h-8 mb-2 text-kards-text-muted" />
                     <span className="text-xs font-bold uppercase tracking-widest">默认桌布</span>
                   </div>
 
@@ -1421,7 +1485,7 @@ export default function App() {
                                 e.stopPropagation();
                                 setDeleteConfirm(null);
                               }}
-                              className="px-2 py-1 bg-gray-600 text-white text-[10px] font-bold rounded-sm uppercase tracking-tighter hover:bg-gray-500"
+                              className="px-2 py-1 bg-kards-panel-alt text-kards-text text-[10px] font-bold rounded-sm uppercase tracking-tighter hover:bg-kards-panel-alt"
                             >取消</button>
                             <button 
                               onClick={(e) => {
@@ -1439,7 +1503,7 @@ export default function App() {
                               e.stopPropagation();
                               setDeleteConfirm({ type: 'tablecloth', id: `tc-${idx}` });
                             }}
-                            className="p-1.5 bg-black/80 hover:bg-red-600 rounded-sm text-red-500 hover:text-white transition-colors"
+                            className="p-1.5 bg-kards-modal-overlay hover:bg-red-600 rounded-sm text-red-500 hover:text-white transition-colors"
                             title="删除桌布"
                           >
                             <Trash2 className="w-3.5 h-3.5" />
@@ -1447,7 +1511,7 @@ export default function App() {
                         )}
                       </div>
                       <div className="absolute inset-0 pointer-events-none bg-kards-gold/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <Check className={`w-6 h-6 text-white ${selectedTablecloth === url ? 'opacity-100' : 'opacity-0'}`} />
+                        <Check className={`w-6 h-6 text-kards-text ${selectedTablecloth === url ? 'opacity-100' : 'opacity-0'}`} />
                       </div>
                     </div>
                   ))}
@@ -1461,7 +1525,7 @@ export default function App() {
                     >
                       <img src={url} className="w-full h-full object-cover" alt={`Tablecloth ${idx + 1}`} />
                       <div className="absolute inset-0 bg-kards-gold/20 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
-                        <Check className={`w-6 h-6 text-white ${selectedTablecloth === url ? 'opacity-100' : 'opacity-0'}`} />
+                        <Check className={`w-6 h-6 text-kards-text ${selectedTablecloth === url ? 'opacity-100' : 'opacity-0'}`} />
                       </div>
                     </div>
                   ))}
@@ -1479,7 +1543,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowCardBackModal(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -1489,12 +1553,12 @@ export default function App() {
             >
               <button 
                 onClick={() => setShowCardBackModal(null)}
-                className="absolute top-4 right-4 text-gray-500 hover:text-white"
+                className="absolute top-4 right-4 text-kards-text-muted hover:text-kards-text"
               >
                 <X className="w-6 h-6" />
               </button>
               
-              <div className="flex items-center justify-between mb-6 border-b border-white/10 pb-4">
+              <div className="flex items-center justify-between mb-6 border-b border-kards-border pb-4">
                 <h3 className="text-2xl font-bold flex items-center gap-3">
                   <ImageIcon className="w-6 h-6 text-kards-gold" /> 更换卡背
                 </h3>
@@ -1507,7 +1571,7 @@ export default function App() {
                          value={newCatName || ''}
                          onChange={e => setNewCatName(e.target.value)}
                          placeholder="分类名称..."
-                         className="bg-black/50 border border-white/20 px-3 py-1 text-sm focus:outline-none focus:border-kards-gold text-white w-32"
+                         className="bg-kards-input-bg border border-kards-border px-3 py-1 text-sm focus:outline-none focus:border-kards-gold text-kards-text w-32"
                          autoFocus
                          onKeyDown={e => {
                            if (e.key === 'Enter') {
@@ -1534,7 +1598,7 @@ export default function App() {
                   ) : (
                     <button 
                       onClick={() => setAddingCategory(true)}
-                      className="flex items-center gap-2 text-sm text-gray-400 hover:text-white transition-colors"
+                      className="flex items-center gap-2 text-sm text-kards-text-muted hover:text-kards-text transition-colors"
                     >
                       <FolderPlus className="w-4 h-4" /> 添加分类
                     </button>
@@ -1563,10 +1627,10 @@ export default function App() {
                 {allCategories.map(category => (
                   <div key={category.id} className="mb-8 relative auto-animate">
                     <div className="flex items-center justify-between mb-4">
-                      <h4 className="text-sm font-bold text-gray-400 uppercase tracking-widest flex items-center gap-2">
-                        <span className="w-4 h-[1px] bg-gray-600" />
+                      <h4 className="text-sm font-bold text-kards-text-muted uppercase tracking-widest flex items-center gap-2">
+                        <span className="w-4 h-[1px] bg-kards-panel-alt" />
                         {category.name} {category.isCustom && <span className="text-xs font-normal text-kards-gold border border-kards-gold px-1 rounded-sm ml-2">自定义</span>}
-                        <span className="flex-1 h-[1px] bg-gray-800" />
+                        <span className="flex-1 h-[1px] bg-kards-panel-alt" />
                       </h4>
                       {category.isCustom && (
                         <button 
@@ -1582,7 +1646,7 @@ export default function App() {
                       )}
                     </div>
                     {category.backs.length === 0 ? (
-                      <div className="text-center py-8 text-gray-600 text-sm italic bg-black/20 border border-white/5">
+                      <div className="text-center py-8 text-kards-text-muted text-sm italic bg-black/20 border border-kards-border">
                         暂无自定义卡背
                       </div>
                     ) : (
@@ -1597,7 +1661,7 @@ export default function App() {
                               setShowCardBackModal(null);
                             }}
                           >
-                            <div className="w-full aspect-[5/7] military-border overflow-hidden bg-black/50 group-hover:border-kards-gold transition-colors relative shadow-black/50 shadow-lg">
+                            <div className="w-full aspect-[5/7] military-border overflow-hidden bg-kards-input-bg group-hover:border-kards-gold transition-colors relative shadow-black/50 shadow-lg">
                               <img 
                                 src={back.url} 
                                 alt={back.name} 
@@ -1611,13 +1675,13 @@ export default function App() {
                               {back.isCustomCard && (
                                 <div className="absolute top-1 right-1 flex gap-1 opacity-80 group-hover:opacity-100 transition-opacity z-20">
                                   {deleteConfirm?.id === back.id ? (
-                                    <div className="flex gap-1 bg-black/90 p-1 rounded-sm shadow-xl border border-white/10" onClick={e => e.stopPropagation()}>
+                                    <div className="flex gap-1 bg-kards-modal-overlay p-1 rounded-sm shadow-xl border border-kards-border" onClick={e => e.stopPropagation()}>
                                       <button 
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setDeleteConfirm(null);
                                         }}
-                                        className="px-1.5 py-0.5 bg-gray-700 text-white text-[10px] font-bold rounded-sm hover:bg-gray-600"
+                                        className="px-1.5 py-0.5 bg-kards-panel-alt text-kards-text text-[10px] font-bold rounded-sm hover:bg-kards-panel-alt"
                                       >取消</button>
                                       <button 
                                         onClick={(e) => {
@@ -1634,7 +1698,7 @@ export default function App() {
                                     <>
                                       {customCategories.length > 0 && (
                                         <button 
-                                          className="p-1 bg-black/80 hover:bg-kards-accent text-white"
+                                          className="p-1 bg-kards-modal-overlay hover:bg-kards-accent text-white"
                                           onClick={(e) => {
                                             e.stopPropagation();
                                             setMovingCardInfo({catId: category.id, backId: back.id});
@@ -1644,7 +1708,7 @@ export default function App() {
                                         </button>
                                       )}
                                       <button 
-                                        className="p-1 bg-black/80 hover:bg-green-600 text-white"
+                                        className="p-1 bg-kards-modal-overlay hover:bg-green-600 text-white"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setEditingCardInfo({catId: category.id, backId: back.id});
@@ -1654,7 +1718,7 @@ export default function App() {
                                         <Edit2 className="w-4 h-4" />
                                       </button>
                                       <button 
-                                        className="p-1 bg-black/80 hover:bg-red-600 text-red-500 hover:text-white"
+                                        className="p-1 bg-kards-modal-overlay hover:bg-red-600 text-red-500 hover:text-white"
                                         onClick={(e) => {
                                           e.stopPropagation();
                                           setDeleteConfirm({ type: 'cardback', id: back.id, catId: category.id });
@@ -1668,10 +1732,10 @@ export default function App() {
                               )}
 
                               {movingCardInfo?.backId === back.id && back.isCustomCard && (
-                                <div className="absolute inset-0 z-30 bg-black/90 flex flex-col items-center justify-center p-2" onClick={e => e.stopPropagation()}>
-                                  <span className="text-white text-xs mb-2">移动至...</span>
+                                <div className="absolute inset-0 z-30 bg-kards-modal-overlay flex flex-col items-center justify-center p-2" onClick={e => e.stopPropagation()}>
+                                  <span className="text-kards-text text-xs mb-2">移动至...</span>
                                   <select 
-                                    className="w-full bg-black border border-white/50 text-white text-xs p-2 mb-2 focus:outline-none"
+                                    className="w-full bg-black border border-kards-border0 text-kards-text text-xs p-2 mb-2 focus:outline-none"
                                     onChange={(e) => {
                                       if(e.target.value) {
                                         const newCatId = e.target.value;
@@ -1695,7 +1759,7 @@ export default function App() {
                                       <option key={c.id} value={c.id}>{c.name}</option>
                                     ))}
                                   </select>
-                                  <button className="text-kards-gold hover:text-white text-xs" onClick={() => setMovingCardInfo(null)}>取消</button>
+                                  <button className="text-kards-gold hover:text-kards-text text-xs" onClick={() => setMovingCardInfo(null)}>取消</button>
                                 </div>
                               )}
                             </div>
@@ -1703,7 +1767,7 @@ export default function App() {
                                <div className="mt-2 w-full flex items-center px-2 z-40" onClick={e => e.stopPropagation()}>
                                   <input 
                                      autoFocus
-                                     className="w-full bg-black border border-kards-gold text-white text-xs px-1 py-0.5 focus:outline-none"
+                                     className="w-full bg-black border border-kards-gold text-kards-text text-xs px-1 py-0.5 focus:outline-none"
                                      value={editingCardName || ''}
                                      onChange={e => setEditingCardName(e.target.value)}
                                      onKeyDown={e => {
@@ -1729,7 +1793,7 @@ export default function App() {
                                   />
                                </div>
                             ) : (
-                               <span className="mt-2 text-xs text-center truncate w-full px-2 text-gray-500 group-hover:text-white transition-colors">{back.name}</span>
+                               <span className="mt-2 text-xs text-center truncate w-full px-2 text-kards-text-muted group-hover:text-kards-text transition-colors">{back.name}</span>
                             )}
                           </div>
                         ))}
@@ -1752,7 +1816,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowAddDeckToCollectionModal(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-md"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
@@ -1760,20 +1824,20 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0 }}
               className="relative w-full max-w-2xl military-border shadow-2xl flex flex-col max-h-[70vh] transition-all"
               style={{ 
-                backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})`,
                 backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
               }}
             >
-              <div className="p-6 border-b border-white/10 flex items-center justify-between">
+              <div className="p-6 border-b border-kards-border flex items-center justify-between">
                 <h3 className="text-xl font-bold tracking-widest text-kards-text">选择要添加的卡组</h3>
-                <button onClick={() => setShowAddDeckToCollectionModal(null)} className="text-gray-500 hover:text-white"><X className="w-6 h-6" /></button>
+                <button onClick={() => setShowAddDeckToCollectionModal(null)} className="text-kards-text-muted hover:text-kards-text"><X className="w-6 h-6" /></button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar">
                 {decks.filter(d => {
                   const col = collections.find(c => c.id === showAddDeckToCollectionModal);
                   return col && !col.deckIds.includes(d.id);
                 }).length === 0 ? (
-                  <div className="text-center py-10 text-gray-600">没有可选的卡组</div>
+                  <div className="text-center py-10 text-kards-text-muted">没有可选的卡组</div>
                 ) : (
                   decks.filter(d => {
                     const col = collections.find(c => c.id === showAddDeckToCollectionModal);
@@ -1785,15 +1849,15 @@ export default function App() {
                         setCollections(collections.map(c => c.id === showAddDeckToCollectionModal ? { ...c, deckIds: [...c.deckIds, deck.id] } : c));
                         setShowAddDeckToCollectionModal(null);
                       }}
-                      className="flex items-center gap-4 p-4 bg-white/5 hover:bg-white/10 transition-colors cursor-pointer group"
+                      className="flex items-center gap-4 p-4 bg-kards-panel hover:bg-kards-panel-hover transition-colors cursor-pointer group"
                     >
                       <div className="flex items-center gap-1">
                         <img src={getFlagUrl(NATION_DATA[deck.mainNation].flag)} className="w-6 h-4 object-contain" alt="main" />
                         {deck.allyNation && <img src={getFlagUrl(NATION_DATA[deck.allyNation].flag)} className="w-5 h-3.5 object-contain opacity-70" alt="ally" />}
                       </div>
                       <div className="flex flex-col">
-                        <span className="font-bold text-gray-200 group-hover:text-kards-gold transition-colors">{deck.name}</span>
-                        <span className="text-xs font-mono text-gray-600">{deck.code}</span>
+                        <span className="font-bold text-kards-text group-hover:text-kards-gold transition-colors">{deck.name}</span>
+                        <span className="text-xs font-mono text-kards-text-muted">{deck.code}</span>
                       </div>
                     </div>
                   ))
@@ -1812,7 +1876,7 @@ export default function App() {
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
-              className="absolute inset-0 bg-black/90 backdrop-blur-sm"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -1824,7 +1888,7 @@ export default function App() {
                 裁剪 {cropQueue[0].type === 'cardback' ? '卡背' : '桌布'}
               </h3>
               
-              <div className="relative w-full h-[60vh] bg-black/50">
+              <div className="relative w-full h-[60vh] bg-kards-input-bg">
                 <Cropper
                   image={cropQueue[0].url}
                   crop={cropState.crop}
@@ -1839,29 +1903,29 @@ export default function App() {
                 />
               </div>
 
-              <div className="w-full flex flex-col gap-4 my-6 text-white bg-black/20 p-4 military-border">
+              <div className="w-full flex flex-col gap-4 my-6 text-kards-text bg-black/20 p-4 military-border">
                 {/* Position Controls */}
                 <div className="flex items-center gap-4">
                   <span className="text-sm font-bold w-12 shrink-0 tracking-widest text-kards-text-muted">位置</span>
                   <div className="flex-1 flex items-center justify-center gap-2">
-                    <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, x: s.crop.x - 1 } }))} className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/20 transition-colors">←</button>
+                    <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, x: s.crop.x - 1 } }))} className="w-8 h-8 flex items-center justify-center bg-kards-panel hover:bg-kards-panel-hover border border-kards-border transition-colors">←</button>
                     <div className="flex flex-col gap-2">
-                      <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, y: s.crop.y - 1 } }))} className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/20 transition-colors">↑</button>
-                      <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, y: s.crop.y + 1 } }))} className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/20 transition-colors">↓</button>
+                      <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, y: s.crop.y - 1 } }))} className="w-8 h-8 flex items-center justify-center bg-kards-panel hover:bg-kards-panel-hover border border-kards-border transition-colors">↑</button>
+                      <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, y: s.crop.y + 1 } }))} className="w-8 h-8 flex items-center justify-center bg-kards-panel hover:bg-kards-panel-hover border border-kards-border transition-colors">↓</button>
                     </div>
-                    <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, x: s.crop.x + 1 } }))} className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/20 transition-colors">→</button>
+                    <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, x: s.crop.x + 1 } }))} className="w-8 h-8 flex items-center justify-center bg-kards-panel hover:bg-kards-panel-hover border border-kards-border transition-colors">→</button>
                   </div>
-                  <div className="text-[10px] font-mono text-gray-500 w-12 text-right">
+                  <div className="text-[10px] font-mono text-kards-text-muted w-12 text-right">
                     {Math.round(cropState.crop.x)}, {Math.round(cropState.crop.y)}
                   </div>
                 </div>
 
-                <hr className="border-white/5" />
+                <hr className="border-kards-border" />
 
                 {/* Zoom Controls */}
                 <div className="flex items-center gap-4">
                   <span className="text-sm font-bold w-12 shrink-0 tracking-widest text-kards-text-muted">缩放</span>
-                  <button onClick={() => setCropState(s => ({ ...s, zoom: Math.max(0.1, s.zoom - 0.01) }))} className="px-3 py-1 bg-white/10 hover:bg-white/20 font-bold border border-white/20">-</button>
+                  <button onClick={() => setCropState(s => ({ ...s, zoom: Math.max(0.1, s.zoom - 0.01) }))} className="px-3 py-1 bg-kards-panel hover:bg-kards-panel-hover font-bold border border-kards-border">-</button>
                   <input
                     type="range"
                     value={cropState.zoom || 1}
@@ -1872,7 +1936,7 @@ export default function App() {
                     onChange={(e) => setCropState(s => ({ ...s, zoom: Number(e.target.value) }))}
                     className="flex-1 accent-kards-gold"
                   />
-                  <button onClick={() => setCropState(s => ({ ...s, zoom: Math.min(3, s.zoom + 0.01) }))} className="px-3 py-1 bg-white/10 hover:bg-white/20 font-bold border border-white/20">+</button>
+                  <button onClick={() => setCropState(s => ({ ...s, zoom: Math.min(3, s.zoom + 0.01) }))} className="px-3 py-1 bg-kards-panel hover:bg-kards-panel-hover font-bold border border-kards-border">+</button>
                   <span className="text-sm font-mono w-12 shrink-0 text-right text-kards-gold">{cropState.zoom.toFixed(4)}x</span>
                 </div>
               </div>
@@ -1880,7 +1944,7 @@ export default function App() {
               <div className="flex w-full gap-4">
                 <button 
                   onClick={handleCancelCrop}
-                  className="flex-1 py-2 text-gray-400 hover:text-white hover:bg-white/5 transition-colors border border-white/10"
+                  className="flex-1 py-2 text-kards-text-muted hover:text-kards-text hover:bg-kards-panel-hover transition-colors border border-kards-border"
                 >
                   跳过 / 取消
                 </button>
@@ -1905,7 +1969,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowUploadModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -1915,9 +1979,9 @@ export default function App() {
             >
               <h3 className="text-xl font-bold mb-4 text-center">上传自定义卡背</h3>
               <div className="w-full mb-4">
-                <label className="block text-sm text-gray-400 mb-2">选择分类</label>
+                <label className="block text-sm text-kards-text-muted mb-2">选择分类</label>
                 <select 
-                  className="w-full bg-black/50 border border-white/20 p-2 text-white focus:outline-none focus:border-kards-gold"
+                  className="w-full bg-kards-input-bg border border-kards-border p-2 text-kards-text focus:outline-none focus:border-kards-gold"
                   value={uploadCategory || ''}
                   onChange={e => setUploadCategory(e.target.value)}
                 >
@@ -1949,7 +2013,7 @@ export default function App() {
               </div>
               <button 
                 onClick={() => setShowUploadModal(false)}
-                className="mt-4 text-sm text-gray-500 hover:text-white transition-colors"
+                className="mt-4 text-sm text-kards-text-muted hover:text-kards-text transition-colors"
               >
                 取消
               </button>
@@ -1967,7 +2031,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowCreateCollectionModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -1975,7 +2039,7 @@ export default function App() {
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
               className="relative w-full max-w-md military-border p-6 shadow-2xl flex flex-col transition-all"
               style={{ 
-                backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})`,
                 backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
               }}
             >
@@ -2003,7 +2067,7 @@ export default function App() {
               <div className="flex gap-4">
                 <button 
                   onClick={() => setShowCreateCollectionModal(false)}
-                  className="flex-1 py-2 text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex-1 py-2 text-kards-text-muted hover:text-kards-text hover:bg-kards-panel-hover transition-colors"
                 >
                   取消
                 </button>
@@ -2040,7 +2104,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setCollectionToDelete(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -2056,7 +2120,7 @@ export default function App() {
               <div className="flex w-full gap-4">
                 <button 
                   onClick={() => setCollectionToDelete(null)}
-                  className="flex-1 py-2 text-gray-400 hover:text-white hover:bg-white/5 transition-colors border border-white/10"
+                  className="flex-1 py-2 text-kards-text-muted hover:text-kards-text hover:bg-kards-panel-hover transition-colors border border-kards-border"
                 >
                   取消
                 </button>
@@ -2084,7 +2148,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setCollectionToRename(null)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-sm"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
@@ -2112,7 +2176,7 @@ export default function App() {
               <div className="flex gap-4">
                 <button 
                   onClick={() => setCollectionToRename(null)}
-                  className="flex-1 py-2 text-gray-400 hover:text-white hover:bg-white/5 transition-colors"
+                  className="flex-1 py-2 text-kards-text-muted hover:text-kards-text hover:bg-kards-panel-hover transition-colors"
                 >
                   取消
                 </button>
@@ -2145,7 +2209,7 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setDeckImageModal({ ...deckImageModal, show: false })}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-md"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0 }}
@@ -2154,17 +2218,17 @@ export default function App() {
               className="relative w-full max-w-3xl bg-kards-gray-alt military-border shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
             >
               <div className="p-4 border-b border-kards-border flex items-center justify-between bg-kards-gray">
-                <h3 className="text-lg font-bold tracking-widest text-kards-text flex items-center gap-2">
+                <h3 className="text-lg font-bold tracking-widest text-white flex items-center gap-2">
                   <ImageIcon className="w-5 h-5 text-kards-gold" />
                   卡组解析图片 {deckImageModal.deck && `- ${deckImageModal.deck.name}`}
                 </h3>
-                <button onClick={() => setDeckImageModal({ ...deckImageModal, show: false })} className="text-gray-500 hover:text-white">
+                <button onClick={() => setDeckImageModal({ ...deckImageModal, show: false })} className="text-kards-text-muted hover:text-kards-text">
                   <X className="w-6 h-6" />
                 </button>
               </div>
               <div className="flex-1 overflow-auto p-6 flex flex-col items-center justify-center bg-kards-bg">
                 {deckImageModal.loading ? (
-                  <div className="flex flex-col items-center justify-center py-12 text-gray-400">
+                  <div className="flex flex-col items-center justify-center py-12 text-kards-text-muted">
                     <div className="w-12 h-12 border-4 border-kards-gold border-t-transparent rounded-full animate-spin mb-4"></div>
                     <p className="font-bold tracking-widest">正在生成解析图片...</p>
                   </div>
@@ -2174,7 +2238,7 @@ export default function App() {
                     <p className="font-bold mb-2">获取失败</p>
                     <p className="text-sm opacity-80">{deckImageModal.error}</p>
                     {deckImageModal.error.includes('.env') || deckImageModal.error.includes('服务器配置') ? (
-                      <div className="mt-6 p-4 bg-white/5 border border-white/10 text-left text-sm text-gray-300 w-full font-mono break-all">
+                      <div className="mt-6 p-4 bg-kards-panel border border-kards-border text-left text-sm text-kards-text w-full font-mono break-all">
                         请在后端根目录下的 .env 文件中配置：<br/>
                         DECK_IMAGE_SERVER_URL=http://your-server/api
                       </div>
@@ -2201,49 +2265,75 @@ export default function App() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => setShowSettingsModal(false)}
-              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-md"
             />
             <motion.div 
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md military-border p-8 shadow-2xl flex flex-col gap-6 transition-all"
+              className="relative w-full max-w-md military-border shadow-2xl flex flex-col transition-all max-h-[90vh] overflow-hidden"
               style={{ 
-                backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})`,
                 backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
               }}
             >
-              <div className="flex items-center justify-between border-b border-white/5 pb-4">
+              {/* Header - Fixed */}
+              <div className="flex items-center justify-between border-b border-kards-border p-8 pb-4">
                 <h3 className="text-xl font-bold tracking-[0.2em] text-kards-text flex items-center gap-3 decoration-kards-gold/50 underline-offset-8 underline">
                   <Settings className="w-6 h-6 text-kards-gold" /> 全局设置
                 </h3>
-                <button onClick={() => setShowSettingsModal(false)} className="text-gray-500 hover:text-white transition-colors">
+                <button onClick={() => setShowSettingsModal(false)} className="text-kards-text-muted hover:text-kards-text transition-colors">
                   <X className="w-6 h-6" />
                 </button>
               </div>
 
-              <div className="space-y-8">
-                {/* Dark Mode */}
+              {/* Content - Scrollable */}
+              <div className="flex-1 overflow-y-auto p-8 py-6 space-y-8 custom-scrollbar">
+                {/* Display Mode */}
                 <div className="flex items-center justify-between">
                   <div className="flex flex-col">
-                    <span className="text-sm font-bold text-gray-200 tracking-wider">深色模式</span>
-                    <span className="text-[10px] text-gray-500 uppercase tracking-tighter">切换应用视觉主题</span>
+                    <span className="text-sm font-bold text-kards-text tracking-wider">显示模式</span>
+                    <span className="text-[10px] text-kards-text-muted uppercase tracking-tighter">切换应用视觉主题</span>
                   </div>
-                  <button 
-                    onClick={() => setSettings(s => ({ ...s, isDarkMode: !s.isDarkMode }))}
-                    className={`w-14 h-7 rounded-full transition-colors relative flex items-center px-1 ${settings.isDarkMode ? 'bg-kards-gold' : 'bg-gray-700'}`}
+                  <select
+                    value={settings.displayMode}
+                    onChange={(e) => setSettings(s => ({ ...s, displayMode: e.target.value as 'dark' | 'light' | 'system' }))}
+                    className="bg-kards-input-bg border border-kards-input-border text-kards-text text-sm px-3 py-1.5 focus:outline-none focus:border-kards-gold rounded transition-colors"
                   >
-                    <motion.div 
-                      animate={{ x: settings.isDarkMode ? 24 : 0 }}
-                      className="w-5 h-5 bg-white rounded-full shadow-md"
-                    />
-                  </button>
+                    <option value="system">跟随系统</option>
+                    <option value="dark">深色模式</option>
+                    <option value="light">浅色模式</option>
+                  </select>
                 </div>
+
+                {/* Light Theme Color Picker (Only show if not dark) */}
+                {(!effectiveIsDarkMode) && (
+                  <div className="flex items-center justify-between">
+                    <div className="flex flex-col">
+                      <span className="text-sm font-bold text-kards-text tracking-wider">浅色主题色</span>
+                      <span className="text-[10px] text-kards-text-muted uppercase tracking-tighter">自定义背景色阶</span>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button 
+                        onClick={() => setSettings(s => ({ ...s, lightThemeColor: '#dcd7c9' }))}
+                        className="text-[10px] uppercase tracking-wider text-kards-text-muted hover:text-kards-text border border-kards-border px-2 py-1 rounded"
+                      >
+                        重置
+                      </button>
+                      <input 
+                        type="color"
+                        value={settings.lightThemeColor || '#dcd7c9'}
+                        onChange={(e) => setSettings(s => ({ ...s, lightThemeColor: e.target.value }))}
+                        className="w-10 h-8 p-0 border-0 bg-transparent cursor-pointer rounded overflow-hidden shadow-sm"
+                      />
+                    </div>
+                  </div>
+                )}
 
                 {/* Border Radius */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-gray-200 tracking-wider">圆角程度</span>
+                    <span className="text-sm font-bold text-kards-text tracking-wider">圆角程度</span>
                     <span className="text-xs font-mono text-kards-gold">{settings.borderRadius}px</span>
                   </div>
                   <input 
@@ -2253,9 +2343,9 @@ export default function App() {
                     step="1"
                     value={settings.borderRadius ?? DEFAULT_SETTINGS.borderRadius}
                     onChange={e => setSettings(s => ({ ...s, borderRadius: parseInt(e.target.value) }))}
-                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                    className="w-full accent-kards-gold h-1.5 bg-kards-panel-alt rounded-lg appearance-none cursor-pointer"
                   />
-                  <div className="flex justify-between text-[10px] text-gray-600 font-bold uppercase tracking-widest">
+                  <div className="flex justify-between text-[10px] text-kards-text-muted font-bold uppercase tracking-widest">
                     <span>Brutalist</span>
                     <span>Modern</span>
                   </div>
@@ -2264,7 +2354,7 @@ export default function App() {
                 {/* Import Box Opacity */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-gray-200 tracking-wider">UI组件透明度</span>
+                    <span className="text-sm font-bold text-kards-text tracking-wider">UI组件透明度</span>
                     <span className="text-xs font-mono text-kards-gold">{Math.round(settings.importBoxOpacity * 100)}%</span>
                   </div>
                   <input 
@@ -2274,14 +2364,14 @@ export default function App() {
                     step="0.01"
                     value={settings.importBoxOpacity ?? DEFAULT_SETTINGS.importBoxOpacity}
                     onChange={e => setSettings(s => ({ ...s, importBoxOpacity: parseFloat(e.target.value) }))}
-                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                    className="w-full accent-kards-gold h-1.5 bg-kards-panel-alt rounded-lg appearance-none cursor-pointer"
                   />
                 </div>
 
                 {/* UI Scale */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-gray-200 tracking-wider">UI组件大小</span>
+                    <span className="text-sm font-bold text-kards-text tracking-wider">UI组件大小</span>
                     <span className="text-xs font-mono text-kards-gold">{Math.round(settings.uiScale * 100)}%</span>
                   </div>
                   <input 
@@ -2291,18 +2381,39 @@ export default function App() {
                     step="0.05"
                     value={settings.uiScale ?? DEFAULT_SETTINGS.uiScale}
                     onChange={e => setSettings(s => ({ ...s, uiScale: parseFloat(e.target.value) }))}
-                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                    className="w-full accent-kards-gold h-1.5 bg-kards-panel-alt rounded-lg appearance-none cursor-pointer"
                   />
-                  <div className="flex justify-between text-[10px] text-gray-600 font-bold uppercase tracking-widest">
+                  <div className="flex justify-between text-[10px] text-kards-text-muted font-bold uppercase tracking-widest">
                     <span>精致</span>
                     <span>巨大</span>
+                  </div>
+                </div>
+
+                {/* Deck Gap */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-kards-text tracking-wider">卡组间距</span>
+                    <span className="text-xs font-mono text-kards-gold">{settings.deckGap}rem</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="0"
+                    max="4"
+                    step="0.1"
+                    value={settings.deckGap ?? DEFAULT_SETTINGS.deckGap}
+                    onChange={e => setSettings(s => ({ ...s, deckGap: parseFloat(e.target.value) }))}
+                    className="w-full accent-kards-gold h-1.5 bg-kards-panel-alt rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-kards-text-muted font-bold uppercase tracking-widest">
+                    <span>紧凑</span>
+                    <span>宽松</span>
                   </div>
                 </div>
 
                 {/* Logo Size */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-gray-200 tracking-wider">背景Logo大小</span>
+                    <span className="text-sm font-bold text-kards-text tracking-wider">背景Logo大小</span>
                     <span className="text-xs font-mono text-kards-gold">{settings.logoSize}px</span>
                   </div>
                   <input 
@@ -2312,14 +2423,14 @@ export default function App() {
                     step="10"
                     value={settings.logoSize ?? DEFAULT_SETTINGS.logoSize}
                     onChange={e => setSettings(s => ({ ...s, logoSize: parseInt(e.target.value) }))}
-                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                    className="w-full accent-kards-gold h-1.5 bg-kards-panel-alt rounded-lg appearance-none cursor-pointer"
                   />
                 </div>
 
                 {/* Logo Opacity */}
                 <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-sm font-bold text-gray-200 tracking-wider">背景Logo透明度</span>
+                    <span className="text-sm font-bold text-kards-text tracking-wider">背景Logo透明度</span>
                     <span className="text-xs font-mono text-kards-gold">{Math.round(settings.logoOpacity * 100)}%</span>
                   </div>
                   <input 
@@ -2329,15 +2440,16 @@ export default function App() {
                     step="0.01"
                     value={settings.logoOpacity ?? DEFAULT_SETTINGS.logoOpacity}
                     onChange={e => setSettings(s => ({ ...s, logoOpacity: parseFloat(e.target.value) }))}
-                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                    className="w-full accent-kards-gold h-1.5 bg-kards-panel-alt rounded-lg appearance-none cursor-pointer"
                   />
                 </div>
               </div>
 
-              <div className="mt-4 pt-6 border-t border-white/5 flex gap-4">
+              {/* Footer - Fixed */}
+              <div className="p-8 pt-4 border-t border-kards-border flex gap-4">
                 <button 
                   onClick={() => setSettings(DEFAULT_SETTINGS)}
-                  className="flex-1 py-3 text-xs font-bold uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
+                  className="flex-1 py-3 text-xs font-bold uppercase tracking-widest text-kards-text-muted hover:text-kards-text transition-colors"
                 >
                   重置默认
                 </button>
@@ -2364,7 +2476,7 @@ function SidebarButton({ active, icon, label, onClick }: { active: boolean, icon
       onClick={onClick}
       className={`
         w-full aspect-square flex flex-col items-center justify-center gap-1 transition-all
-        ${active ? 'bg-kards-accent text-white shadow-inner scale-[0.98]' : 'text-gray-500 hover:bg-white/5 hover:text-gray-300'}
+        ${active ? 'bg-kards-accent text-white shadow-inner scale-[0.98]' : 'text-kards-text-muted hover:bg-kards-panel-hover hover:text-white'}
         relative overflow-hidden group
       `}
     >
@@ -2405,9 +2517,7 @@ function DeckCard({ deck, selected, onClick, settings }: DeckCardProps) {
         {/* Card Body */}
         <div 
           style={{ 
-            backgroundColor: settings.isDarkMode 
-              ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` 
-              : `rgba(26, 26, 26, ${settings.importBoxOpacity})` 
+            backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})` 
           }}
           className={`
             w-full h-full paper-texture military-border relative overflow-hidden backdrop-blur-[2px] flex flex-col items-center justify-center rounded-md transition-all
@@ -2427,7 +2537,7 @@ function DeckCard({ deck, selected, onClick, settings }: DeckCardProps) {
           
           {/* Small flags at the bottom center */}
           <div 
-            className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-end gap-1 bg-black/70 p-1 rounded-sm backdrop-blur-sm border border-white/10 z-10 origin-bottom"
+            className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-end gap-1 bg-black/70 p-1 rounded-sm backdrop-blur-sm border border-kards-border z-10 origin-bottom"
             style={{ transform: `translateX(-50%) scale(${settings.uiScale})` }}
           >
             <img src={getFlagUrl(mainData.flag)} className="w-5 h-3.5 object-contain" alt="main" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
@@ -2472,7 +2582,7 @@ function DeckCard({ deck, selected, onClick, settings }: DeckCardProps) {
       </div>
 
       <div className="mt-4 flex flex-col items-center gap-2">
-        <span className={`text-sm font-bold tracking-tight text-center ${selected ? 'text-kards-gold' : 'text-gray-300'}`}>
+        <span className={`text-sm font-bold tracking-tight text-center px-4 py-1 rounded shadow-md backdrop-blur-md border transition-all ${selected ? 'text-kards-gold bg-kards-panel border-kards-gold/50 shadow-kards-gold/20' : 'text-kards-text bg-kards-panel/80 border-kards-border/50'}`}>
           {deck.name}
         </span>
       </div>
