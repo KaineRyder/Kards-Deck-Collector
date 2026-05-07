@@ -394,7 +394,7 @@ export default function App() {
   const handleGetDeckImage = async (deck: Deck) => {
     setDeckImageModal({ show: true, deck, loading: true, imageUrl: null, error: null });
     try {
-      // 检查缓存，避免重复请求
+      // 检查缓存
       const cachedImage = await localforage.getItem<string>(`deck_img_${deck.code}`);
       if (cachedImage) {
         setDeckImageModal({ show: true, deck, loading: false, imageUrl: cachedImage, error: null });
@@ -409,11 +409,24 @@ export default function App() {
         body: JSON.stringify({ code: deck.code })
       });
       
+      const contentType = response.headers.get("content-type");
       if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.error || '获取卡组解析图片失败');
+        let errorMessage = '获取卡组解析图片失败';
+        if (contentType && contentType.includes("application/json")) {
+           const errorData = await response.json();
+           errorMessage = errorData.error || errorMessage;
+        } else {
+           const text = await response.text();
+           console.error('Server returned HTML/Text instead of JSON:', text.substring(0, 200));
+           errorMessage = `服务器请求失败 (${response.status})`;
+        }
+        throw new Error(errorMessage);
       }
       
+      if (!contentType || !contentType.includes("application/json")) {
+        throw new Error('服务器响应格式错误 (非 JSON)');
+      }
+
       const data = await response.json();
       if (data.imageData) {
         await localforage.setItem(`deck_img_${deck.code}`, data.imageData);
@@ -603,11 +616,11 @@ export default function App() {
           const catExists = prev.some(c => c.id === newCatId);
           if (catExists) {
              return prev.map(c => 
-               c.id === newCatId ? { ...c, backs: [...c.backs, { id: Date.now().toString() + Math.random(), url: croppedImage, name: currentCrop.name || 'Custom' }] } : c
+               c.id === newCatId ? { ...c, backs: [...c.backs, { id: Date.now().toString() + Math.random(), url: croppedImage, name: currentCrop.name || 'Custom', isCustomCard: true }] } : c
              );
           } else {
              const builtIn = CARD_BACK_CATEGORIES.find(c => c.name === newCatId);
-             return [...prev, { id: newCatId, name: builtIn ? builtIn.name : newCatId, backs: [{ id: Date.now().toString() + Math.random(), url: croppedImage, name: currentCrop.name || 'Custom' }] }];
+             return [...prev, { id: newCatId, name: builtIn ? builtIn.name : newCatId, backs: [{ id: Date.now().toString() + Math.random(), url: croppedImage, name: currentCrop.name || 'Custom', isCustomCard: true }] }];
           }
         });
       }
@@ -675,14 +688,14 @@ export default function App() {
                 placeholder={activeMenu === 'collection' ? "搜索合集名称..." : "搜索卡组..."}
                 value={searchQuery}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-3 py-1.5 focus:outline-none focus:border-kards-gold min-w-[200px]"
+                className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-3 py-1.5 focus:outline-none focus:border-kards-gold min-w-[200px] rounded"
               />
               {activeMenu !== 'collection' && (
                 <>
                   <select 
                     value={filterMainNation}
                     onChange={e => setFilterMainNation(e.target.value as Nation | 'All')}
-                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold"
+                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold rounded"
                   >
                     <option value="All">主国：全部</option>
                     {Object.entries(NATION_DATA).map(([key, data]) => data.isMainAllowed && <option key={key} value={key}>{data.label}</option>)}
@@ -690,7 +703,7 @@ export default function App() {
                   <select 
                     value={filterAllyNation}
                     onChange={e => setFilterAllyNation(e.target.value as Nation | 'All')}
-                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold"
+                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold rounded"
                   >
                     <option value="All">盟国：全部</option>
                     {Object.keys(NATION_DATA).map(key => <option key={key} value={key}>{NATION_DATA[key as Nation].label}</option>)}
@@ -698,7 +711,7 @@ export default function App() {
                   <select 
                     value={filterTag}
                     onChange={e => setFilterTag(e.target.value)}
-                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold max-w-[120px]"
+                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold max-w-[120px] rounded"
                   >
                     <option value="All">标签：全部</option>
                     {allTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
@@ -800,7 +813,7 @@ export default function App() {
                   </AnimatePresence>
                 </div>
                 
-                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-y-12 gap-x-8 max-w-7xl w-full relative z-10">
+                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-y-2 gap-x-2 max-w-7xl w-full relative z-10">
                   {sortedDecks.map((deck) => (
                     <DeckCard 
                       key={deck.id}
@@ -815,7 +828,7 @@ export default function App() {
                     onClick={() => setShowImportModal(true)}
                     className="flex flex-col items-center group flex-shrink-0"
                   >
-                    <div className="w-40 aspect-[5/7] military-border bg-[#1a1a1a] flex items-center justify-center group-hover:border-kards-gold transition-all">
+                    <div className="w-40 aspect-[5/7] military-border bg-[#1a1a1a]/60 backdrop-blur-sm flex items-center justify-center group-hover:border-kards-gold transition-all rounded-lg">
                       <Plus className="w-12 h-12 text-gray-600 group-hover:text-kards-gold" />
                     </div>
                     <span className="mt-2 text-sm text-gray-500 group-hover:text-kards-gold">导入新卡组</span>
@@ -835,13 +848,13 @@ export default function App() {
                       setNewCollectionName('');
                       setShowCreateCollectionModal(true);
                     }}
-                    className="bg-kards-accent px-6 py-2 font-bold text-white hover:brightness-125 transition-all flex items-center gap-2 shadow-lg"
+                    className="bg-kards-accent px-6 py-2 font-bold text-white hover:brightness-125 transition-all flex items-center gap-2 shadow-lg rounded-md"
                   >
                     <Plus className="w-5 h-5" /> 创建新合集
                   </button>
                 </div>
 
-                <div className="space-y-4">
+                <div className="space-y-1.5">
                   {collections
                     .filter(c => c.name.toLowerCase().includes(searchQuery.toLowerCase()))
                     .map((col, index) => (
@@ -865,7 +878,7 @@ export default function App() {
                           }
                         }
                       }}
-                      className="bg-[#1a1a1a]/90 backdrop-blur-md border border-white/10 group/col relative overflow-hidden shadow-xl"
+                      className="bg-[#1a1a1a]/60 backdrop-blur-md border border-white/10 group/col relative overflow-hidden shadow-xl rounded-lg"
                       style={{ zIndex: expandedCollectionId === col.id ? 20 : 10 }}
                     >
                       <div 
@@ -1045,7 +1058,7 @@ export default function App() {
                     className="w-48 aspect-[5/7] military-border overflow-hidden relative group cursor-pointer bg-[#222] flex items-center justify-center shrink-0 shadow-2xl"
                     onClick={() => setShowCardBackModal(selectedDeck.id)}
                   >
-                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center backdrop-blur-sm">
+                      <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center backdrop-blur-sm rounded-md">
                         <span className="text-white font-bold tracking-widest text-sm flex items-center gap-2">
                           <ImageIcon className="w-4 h-4" />
                           更换卡背
@@ -1054,7 +1067,7 @@ export default function App() {
                       <img 
                         src={selectedDeck.cardBackUrl || NATION_DATA[selectedDeck.mainNation].defaultBack || '/assets/cardbacks/Common/BasicBeta.jpg'} 
                         alt={selectedDeck.name}
-                        className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300 pointer-events-none select-none"
+                        className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300 pointer-events-none select-none rounded-md"
                         onError={(e) => { 
                           if (e.currentTarget.getAttribute('data-error')) return;
                           e.currentTarget.setAttribute('data-error', 'true');
@@ -1145,7 +1158,7 @@ export default function App() {
                   />
                 </div>
                 
-                <button className="w-full bg-zinc-200 text-black font-bold py-3 uppercase tracking-widest text-sm hover:bg-white transition-colors flex items-center justify-center gap-2">
+                <button className="w-full bg-zinc-200 text-black font-bold py-3 uppercase tracking-widest text-sm hover:bg-white transition-colors flex items-center justify-center gap-2 rounded-md">
                   <Settings className="w-4 h-4" /> 编辑卡组
                 </button>
               </div>
@@ -1195,7 +1208,7 @@ export default function App() {
                     value={importName}
                     onChange={(e) => setImportName(e.target.value)}
                     placeholder="输入卡组名称，留空则使用默认名称"
-                    className="w-full bg-black/50 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-kards-gold transition-colors mb-4"
+                    className="w-full bg-black/50 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-kards-gold transition-colors mb-4 rounded-md"
                   />
                   <label className="block text-xs uppercase tracking-wider text-gray-500 mb-2 font-bold">输入卡组码</label>
                   <input 
@@ -1206,7 +1219,7 @@ export default function App() {
                       setErrorStatus(null);
                     }}
                     placeholder="例如: %%53|5ucCbn;5W6L..."
-                    className={`w-full bg-black/50 border ${errorStatus ? 'border-red-500' : 'border-white/10'} px-4 py-3 text-kards-gold font-mono focus:outline-none focus:border-kards-gold transition-colors`}
+                    className={`w-full bg-black/50 border ${errorStatus ? 'border-red-500' : 'border-white/10'} px-4 py-3 text-kards-gold font-mono focus:outline-none focus:border-kards-gold transition-colors rounded-md`}
                     autoFocus
                   />
                   {errorStatus && (
@@ -1219,13 +1232,13 @@ export default function App() {
                 <div className="flex gap-4 pt-4">
                   <button 
                     onClick={handleCloseImportModal}
-                    className="flex-1 border border-white/10 py-3 font-bold hover:bg-white/5 transition-colors"
+                    className="flex-1 border border-white/10 py-3 font-bold hover:bg-white/5 transition-colors rounded-md"
                   >
                     取消
                   </button>
                   <button 
                     onClick={handleAddDeck}
-                    className="flex-1 bg-kards-accent py-3 font-bold text-white hover:brightness-125 transition-all shadow-lg"
+                    className="flex-1 bg-kards-accent py-3 font-bold text-white hover:brightness-125 transition-all shadow-lg rounded-md"
                   >
                     确认导入
                   </button>
@@ -1251,7 +1264,7 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-4xl max-h-[80vh] bg-[#222] military-border p-8 shadow-2xl flex flex-col z-50"
+              className="relative w-full max-w-4xl max-h-[80vh] bg-[#222] military-border p-8 shadow-2xl flex flex-col z-50 rounded-xl"
             >
               <button 
                 onClick={() => setShowTableclothModal(false)}
@@ -1305,16 +1318,20 @@ export default function App() {
                         {deleteConfirm?.id === `tc-${idx}` ? (
                           <div className="flex gap-1" onClick={e => e.stopPropagation()}>
                             <button 
-                              onClick={() => setDeleteConfirm(null)}
-                              className="px-2 py-1 bg-gray-600 text-white text-[10px] font-bold rounded-sm uppercase tracking-tighter"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                setDeleteConfirm(null);
+                              }}
+                              className="px-2 py-1 bg-gray-600 text-white text-[10px] font-bold rounded-sm uppercase tracking-tighter hover:bg-gray-500"
                             >取消</button>
                             <button 
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 setCustomTablecloths(prev => prev.filter((_, i) => i !== idx));
                                 if (selectedTablecloth === url) setSelectedTablecloth(null);
                                 setDeleteConfirm(null);
                               }}
-                              className="px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded-sm uppercase tracking-tighter"
+                              className="px-2 py-1 bg-red-600 text-white text-[10px] font-bold rounded-sm uppercase tracking-tighter hover:bg-red-500"
                             >确认</button>
                           </div>
                         ) : (
@@ -1474,8 +1491,9 @@ export default function App() {
                         {category.backs.map((back: any) => (
                           <div 
                             key={back.id}
-                            className="flex flex-col items-center group cursor-pointer relative"
+                            className={`flex flex-col items-center group relative ${deleteConfirm?.id === back.id ? '' : 'cursor-pointer'}`}
                             onClick={() => {
+                              if (deleteConfirm?.id === back.id) return;
                               setDecks(decks.map(d => d.id === showCardBackModal ? { ...d, cardBackUrl: back.url } : d));
                               setShowCardBackModal(null);
                             }}
@@ -1496,17 +1514,21 @@ export default function App() {
                                   {deleteConfirm?.id === back.id ? (
                                     <div className="flex gap-1 bg-black/90 p-1 rounded-sm shadow-xl border border-white/10" onClick={e => e.stopPropagation()}>
                                       <button 
-                                        onClick={() => setDeleteConfirm(null)}
-                                        className="px-1.5 py-0.5 bg-gray-700 text-white text-[10px] font-bold"
+                                        onClick={(e) => {
+                                          e.stopPropagation();
+                                          setDeleteConfirm(null);
+                                        }}
+                                        className="px-1.5 py-0.5 bg-gray-700 text-white text-[10px] font-bold rounded-sm hover:bg-gray-600"
                                       >取消</button>
                                       <button 
-                                        onClick={() => {
+                                        onClick={(e) => {
+                                          e.stopPropagation();
                                           setCustomCategories(prev => prev.map(c => 
                                             c.id === category.id ? { ...c, backs: c.backs.filter((b: any) => b.id !== back.id) } : c
                                           ));
                                           setDeleteConfirm(null);
                                         }}
-                                        className="px-1.5 py-0.5 bg-red-600 text-white text-[10px] font-bold outline outline-1 outline-white/20"
+                                        className="px-1.5 py-0.5 bg-red-600 text-white text-[10px] font-bold outline outline-1 outline-white/20 rounded-sm hover:bg-red-500"
                                       >删除</button>
                                     </div>
                                   ) : (
@@ -2111,13 +2133,13 @@ function DeckCard({ deck, selected, onClick }: DeckCardProps) {
       `}>
         {/* Card Body */}
         <div className={`
-          w-full h-full paper-texture military-border relative overflow-hidden bg-[#222] flex flex-col items-center justify-center
+          w-full h-full paper-texture military-border relative overflow-hidden bg-[#222]/65 backdrop-blur-[2px] flex flex-col items-center justify-center rounded-md
           ${selected ? 'ring-4 ring-kards-gold ring-offset-4 ring-offset-kards-bg' : ''}
         `}>
           <img 
             src={deck.cardBackUrl || mainData.defaultBack || '/assets/cardbacks/Common/BasicBeta.jpg'} 
             alt={deck.name}
-            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300"
+            className="w-full h-full object-contain group-hover:scale-105 transition-transform duration-300 rounded-md"
             onError={(e) => { 
                 if (e.currentTarget.getAttribute('data-error')) return;
                 e.currentTarget.setAttribute('data-error', 'true');
@@ -2175,7 +2197,7 @@ function ActionButton({ onClick, icon, className = "" }: { onClick: () => void, 
   return (
     <button 
       onClick={onClick}
-      className={`flex-1 h-12 flex items-center justify-center transition-all military-border ${className}`}
+      className={`flex-1 h-12 flex items-center justify-center transition-all military-border rounded-sm ${className}`}
     >
       {icon}
     </button>

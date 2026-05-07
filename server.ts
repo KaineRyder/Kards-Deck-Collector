@@ -97,6 +97,15 @@ async function startServer() {
     }
   });
 
+  // 针对 API 路由的专用 JSON 错误处理
+  app.use('/api', (err: any, req: express.Request, res: express.Response, next: express.NextFunction) => {
+    console.error('API Error:', err);
+    res.status(err.status || 500).json({ 
+      error: err.message || '内部服务器错误',
+      path: req.path
+    });
+  });
+
   // Vite middleware for development
   if (process.env.NODE_ENV !== "production") {
     const vite = await createViteServer({
