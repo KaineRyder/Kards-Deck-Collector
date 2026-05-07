@@ -1,20 +1,72 @@
-<div align="center">
-<img width="1200" height="475" alt="GHBanner" src="https://github.com/user-attachments/assets/0aa67016-6eaf-458a-adb2-6e31a0763ed6" />
-</div>
+# KARDS 卡组记录器 (KARDS Deck Recorder)
 
-# Run and deploy your AI Studio app
+一个专为二战题材卡牌游戏 **KARDS** 打造的深度还原卡组管理与记录工具。本应用旨在为玩家提供一个极具沉浸感、高度还原游戏原生界面的卡组管理平台，支持卡组代码导入、多维度自定义以及本地持久化存储。
 
-This contains everything you need to run your app locally.
+![KARDS](https://www.kards.com/assets/images/kards-logo-beige.png)
 
-View your app in AI Studio: https://ai.studio/apps/6e5f4c1b-f333-40e9-ba9d-dc901aff0d87
+## ✨ 核心特性
 
-## Run Locally
+- **🎖️ 沉浸式 UI 设计**：
+  - 深度还原 KARDS 原生军武风格界面。
+  - 动态国家背景图：根据选择的卡组自动切换主/盟国图标。
+  - 可点击替换的“桌布”背景（内置 20+ 款精美桌布，支持自定义上传）。
 
-**Prerequisites:**  Node.js
+- **📋 智能卡组导入**：
+  - 支持官方格式的卡组代码（以 `%%` 开头）。
+  - 内置解析引擎，自动核对主国、盟国、卡牌总数及稀有度分布。
+  - 实时校验：自动检测卡组数量（39/40张限制）及规则合规性。
 
+- **🎨 高度自定义**：
+  - **卡背系统**：内置全阵营默认及老兵卡背，支持玩家上传自定义卡背并进行分类管理。
+  - **标签/收藏**：为卡组添加自定义标签，支持快捷搜索与过滤。
+  - **重命名**：随时修改卡组名称。
 
-1. Install dependencies:
-   `npm install`
-2. Set the `GEMINI_API_KEY` in [.env.local](.env.local) to your Gemini API key
-3. Run the app:
-   `npm run dev`
+- **📂 便捷管理**：
+  - 强大的搜索与过滤引擎：支持按名称、主国、盟国、标签进行多重过滤。
+  - 一键复制卡组码，方便在游戏内直接导入。
+
+- **💾 数据持久化**：
+  - 所有卡组数据、自定义图片及设置均通过 `localStorage` 自动保存，无需登录即可享受完整的离线体验。
+
+## 🚀 技术栈
+
+- **前端框架**：[React 19](https://react.dev/)
+- **构建工具**：[Vite 6](https://vitejs.dev/)
+- **样式处理**：[Tailwind CSS 4](https://tailwindcss.com/)
+- **动画引擎**：[Motion](https://motion.dev/) (原 Framer Motion)
+- **图标库**：[Lucide React](https://lucide.dev/)
+- **类型检查**：TypeScript
+
+## 🛠️ 项目结构
+
+```text
+/
+├── public/assets/          # 游戏素材资源
+│   ├── cardbacks/          # 各阵营卡背图
+│   ├── flags/              # 国旗矢量图
+│   ├── icons/              # 阵营图标
+│   └── tablecloths/        # 背景桌布图
+├── src/
+│   ├── App.tsx             # 应用主程序逻辑与 UI
+│   ├── index.css           # 全局样式（含 Tailwind 配置）
+│   └── main.tsx            # 入口文件
+├── metadata.json           # 应用元数据
+└── package.json            # 依赖与脚本配置
+```
+
+## 📖 如何使用
+
+1. **导入卡组**：点击主界面占位符或左侧导航的“导入”按钮，粘贴来自游戏或社区的卡组代码即可。
+2. **自定义外观**：
+   - 点击侧边栏或顶栏的“调色盘”图标更换背景桌布。
+   - 点击卡组详情页的卡背大图，更换或上传你的专属卡背。
+3. **管理卡组**：使用顶部的搜索框和下拉菜单，在海量战术中快速定位你的目标。
+
+## ⚠️ 注意事项
+
+- **存储限制**：由于使用 `localStorage` 存储自定义图片，请避免上传过大或过多的高分辨率图像，以免超出浏览器的存储限制（通常为 5MB-10MB）。
+- **兼容性**：推荐使用现代浏览器（Chrome, Edge, Safari）以获得最佳的毛玻璃特效和动画体验。
+
+---
+
+*胜利属于指挥官！*
