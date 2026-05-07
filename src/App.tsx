@@ -62,6 +62,24 @@ interface Collection {
   createdAt: number;
 }
 
+interface AppSettings {
+  borderRadius: number;
+  importBoxOpacity: number;
+  logoSize: number;
+  logoOpacity: number;
+  isDarkMode: boolean;
+  uiScale: number;
+}
+
+const DEFAULT_SETTINGS: AppSettings = {
+  borderRadius: 6,
+  importBoxOpacity: 0.6,
+  logoSize: 450,
+  logoOpacity: 0.25,
+  isDarkMode: true,
+  uiScale: 1.0
+};
+
 // --- Icons & Labels ---
 const ID_TO_NATION: Record<number, Nation> = {
   1: 'Germany',
@@ -284,6 +302,8 @@ export default function App() {
   const [dataLoaded, setDataLoaded] = useState(false);
   const [decks, setDecks] = useState<Deck[]>(INITIAL_DECKS);
   const [collections, setCollections] = useState<Collection[]>([]);
+  const [settings, setSettings] = useState<AppSettings>(DEFAULT_SETTINGS);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
 
   // --- State for Preloading ---
   useEffect(() => {
@@ -333,12 +353,14 @@ export default function App() {
         const loadedCategories = await getOrMigrate<any[]>('kards_custom_categories', []);
         const loadedSelectedTablecloth = await getOrMigrate<string | null>('kards_selected_tablecloth', null);
         const loadedCustomTablecloths = await getOrMigrate<string[]>('kards_custom_tablecloths', []);
+        const loadedSettings = await getOrMigrate<AppSettings>('kards_settings', DEFAULT_SETTINGS);
 
         setDecks(loadedDecks);
         setCollections(loadedCollections);
         setCustomCategories(loadedCategories);
         setSelectedTablecloth(loadedSelectedTablecloth);
         setCustomTablecloths(loadedCustomTablecloths);
+        setSettings({ ...DEFAULT_SETTINGS, ...loadedSettings });
         setDataLoaded(true);
       } catch (e) {
         console.error("Failed to load data", e);
@@ -362,6 +384,21 @@ export default function App() {
     if (!dataLoaded) return;
     localforage.setItem('kards_custom_categories', customCategories).catch(console.error);
   }, [customCategories, dataLoaded]);
+
+  useEffect(() => {
+    if (!dataLoaded) return;
+    localforage.setItem('kards_settings', settings).catch(console.error);
+
+    // Apply dark mode class to body
+    if (settings.isDarkMode) {
+      document.body.classList.add('dark');
+    } else {
+      document.body.classList.remove('dark');
+    }
+
+    // Apply border radius CSS variable
+    document.documentElement.style.setProperty('--radius-base', `${settings.borderRadius}px`);
+  }, [settings, dataLoaded]);
 
   const [addingCategory, setAddingCategory] = useState(false);
   const [newCatName, setNewCatName] = useState('');
@@ -667,7 +704,7 @@ export default function App() {
   return (
     <div className="flex flex-col h-screen military-noise relative">
       {/* --- Top Bar --- */}
-      <header className="h-14 bg-[#121212] flex items-center justify-between px-6 border-b border-white/5 z-20">
+      <header className="h-14 bg-kards-gray flex items-center justify-between px-6 border-b border-kards-border z-20 transition-colors duration-300">
         <div className="flex items-center gap-8">
           <div className="flex items-center gap-3">
             <img 
@@ -676,42 +713,42 @@ export default function App() {
               className="h-16 w-auto"
               onError={(e) => { e.currentTarget.style.display = 'none'; }}
             />
-            <span className="text-xl font-bold tracking-widest text-[#e0e0e0] sr-only">KARDS</span>
+            <span className="text-xl font-bold tracking-widest text-kards-text sr-only">KARDS</span>
           </div>
           <nav className="flex items-center gap-6">
-            <h1 className="text-[#a0a0a0] font-medium border-l border-white/10 pl-6 cursor-default">
+            <h1 className="text-kards-text-muted font-medium border-l border-kards-border pl-6 cursor-default">
               {activeMenu === 'collection' ? '合集管理' : '卡组记录器'}
             </h1>
             <div className="flex items-center gap-3">
               <input 
                 type="text" 
                 placeholder={activeMenu === 'collection' ? "搜索合集名称..." : "搜索卡组..."}
-                value={searchQuery}
+                value={searchQuery || ''}
                 onChange={e => setSearchQuery(e.target.value)}
-                className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-3 py-1.5 focus:outline-none focus:border-kards-gold min-w-[200px] rounded"
+                className="bg-kards-gray-alt border border-kards-border text-kards-text text-sm px-3 py-1.5 focus:outline-none focus:border-kards-gold min-w-[200px] rounded transition-colors"
               />
               {activeMenu !== 'collection' && (
                 <>
                   <select 
-                    value={filterMainNation}
+                    value={filterMainNation || 'All'}
                     onChange={e => setFilterMainNation(e.target.value as Nation | 'All')}
-                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold rounded"
+                    className="bg-kards-gray-alt border border-kards-border text-kards-text text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold rounded transition-colors"
                   >
                     <option value="All">主国：全部</option>
                     {Object.entries(NATION_DATA).map(([key, data]) => data.isMainAllowed && <option key={key} value={key}>{data.label}</option>)}
                   </select>
                   <select 
-                    value={filterAllyNation}
+                    value={filterAllyNation || 'All'}
                     onChange={e => setFilterAllyNation(e.target.value as Nation | 'All')}
-                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold rounded"
+                    className="bg-kards-gray-alt border border-kards-border text-kards-text text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold rounded transition-colors"
                   >
                     <option value="All">盟国：全部</option>
                     {Object.keys(NATION_DATA).map(key => <option key={key} value={key}>{NATION_DATA[key as Nation].label}</option>)}
                   </select>
                   <select 
-                    value={filterTag}
+                    value={filterTag || 'All'}
                     onChange={e => setFilterTag(e.target.value)}
-                    className="bg-[#1a1a1a] border border-white/10 text-white text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold max-w-[120px] rounded"
+                    className="bg-kards-gray-alt border border-kards-border text-kards-text text-sm px-2 py-1.5 focus:outline-none focus:border-kards-gold max-w-[120px] rounded transition-colors"
                   >
                     <option value="All">标签：全部</option>
                     {allTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
@@ -728,13 +765,17 @@ export default function App() {
             className="p-2 hover:bg-white/5 transition-colors group relative"
             title="切换桌布"
           >
-            <Palette className="w-5 h-5 text-gray-400 group-hover:text-kards-gold" />
+            <Palette className="w-5 h-5 text-kards-text-muted group-hover:text-kards-gold" />
           </button>
-          <button className="p-2 hover:bg-white/5 transition-colors">
-            <User className="w-5 h-5 text-gray-400" />
+          <button className="p-2 hover:bg-white/5 transition-colors group">
+            <User className="w-5 h-5 text-kards-text-muted group-hover:text-white" />
           </button>
-          <button className="p-2 hover:bg-white/5 transition-colors">
-            <Settings className="w-5 h-5 text-gray-400" />
+          <button 
+            onClick={() => setShowSettingsModal(true)}
+            className="p-2 hover:bg-white/5 transition-colors group"
+            title="应用设置"
+          >
+            <Settings className="w-5 h-5 text-kards-text-muted group-hover:text-kards-gold" />
           </button>
         </div>
       </header>
@@ -743,7 +784,7 @@ export default function App() {
       <div className="flex flex-1 overflow-hidden">
         
         {/* Left Sidebar */}
-        <aside className="w-24 bg-[#151515] flex flex-col gap-1 p-1 z-10 border-r border-white/5">
+        <aside className="w-24 bg-kards-gray flex flex-col gap-1 p-1 z-10 border-r border-kards-border transition-colors duration-300">
           <SidebarButton 
             active={activeMenu === 'decks'} 
             onClick={() => setActiveMenu('decks')}
@@ -759,89 +800,111 @@ export default function App() {
         </aside>
 
         {/* Center Grid */}
-        <main className="flex-1 bg-[#0a0a0a] overflow-y-auto no-scrollbar relative">
+        <main className="flex-1 bg-kards-bg overflow-hidden relative transition-colors duration-300">
+          {/* Fixed Background Layer */}
           <div 
-            className="min-h-full w-full relative flex flex-col items-center p-12 transition-all duration-700"
+            className="absolute inset-0 pointer-events-none z-0"
             style={{
               backgroundImage: selectedTablecloth ? `url("${selectedTablecloth}")` : undefined,
               backgroundSize: 'cover',
               backgroundPosition: 'center',
               backgroundColor: !selectedTablecloth ? 'rgba(255,255,255,0.02)' : undefined
             }}
-          >
-            {activeMenu === 'decks' && (
-              <>
-                {/* Nation Background Overlay - Moves with the table */}
-                <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none">
-                  <div className="absolute inset-0 bg-black/20" />
-                  <AnimatePresence>
-                    {selectedDeck && (
-                      <motion.div 
-                        key={selectedDeck.id}
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        exit={{ opacity: 0 }}
-                        transition={{ duration: 0.25 }}
-                        className="absolute inset-0 flex items-center justify-center"
-                      >
-                        {!selectedDeck.isArena && selectedDeck.allyNation ? (
-                          <div className="flex items-center justify-center gap-32 w-full">
-                            <div className="flex-1 flex justify-end">
-                              <img 
-                                src={NATION_DATA[selectedDeck.mainNation].icon} 
-                                className={`w-[450px] h-[450px] object-contain transition-all duration-300 ${selectedTablecloth ? 'opacity-30' : 'opacity-20'}`} 
-                                alt="main"
-                              />
-                            </div>
-                            <div className="flex-1 flex justify-start">
-                              <img 
-                                src={NATION_DATA[selectedDeck.allyNation].icon} 
-                                className={`w-[350px] h-[350px] object-contain transition-all duration-300 ${selectedTablecloth ? 'opacity-25' : 'opacity-15'}`} 
-                                alt="ally"
-                              />
-                            </div>
-                          </div>
-                        ) : (
-                          <img 
-                            src={NATION_DATA[selectedDeck.mainNation].icon} 
-                            className={`w-[500px] h-[500px] object-contain transition-all duration-300 ${selectedTablecloth ? 'opacity-30' : 'opacity-20'}`} 
-                            alt="nation"
-                          />
-                        )}
-                      </motion.div>
-                    )}
-                  </AnimatePresence>
-                </div>
-                
-                <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-y-2 gap-x-2 max-w-7xl w-full relative z-10">
-                  {sortedDecks.map((deck) => (
-                    <DeckCard 
-                      key={deck.id}
-                      deck={deck}
-                      selected={selectedDeckId === deck.id}
-                      onClick={() => setSelectedDeckId(deck.id)}
-                    />
-                  ))}
+          />
 
-                  {/* Add Deck Placeholder */}
-                  <button 
-                    onClick={() => setShowImportModal(true)}
-                    className="flex flex-col items-center group flex-shrink-0"
-                  >
-                    <div className="w-40 aspect-[5/7] military-border bg-[#1a1a1a]/60 backdrop-blur-sm flex items-center justify-center group-hover:border-kards-gold transition-all rounded-lg">
-                      <Plus className="w-12 h-12 text-gray-600 group-hover:text-kards-gold" />
+          {/* Nation Background Overlay - Fixed to viewport */}
+          <div className="absolute inset-0 flex items-center justify-center overflow-hidden pointer-events-none z-0">
+            <div className="absolute inset-0 bg-black/20" />
+            <AnimatePresence>
+              {selectedDeck && (
+                <motion.div 
+                  key={selectedDeck.id}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.25 }}
+                  className="absolute inset-0 flex items-center justify-center"
+                >
+                  {!selectedDeck.isArena && selectedDeck.allyNation ? (
+                    <div className="flex items-center justify-center gap-32 w-full">
+                      <div className="flex-1 flex justify-end">
+                        <img 
+                          src={NATION_DATA[selectedDeck.mainNation].icon} 
+                          style={{ width: settings.logoSize, height: settings.logoSize, opacity: settings.logoOpacity * (selectedTablecloth ? 1.2 : 0.8) }}
+                          className="object-contain transition-all duration-300" 
+                          alt="main"
+                        />
+                      </div>
+                      <div className="flex-1 flex justify-start">
+                        <img 
+                          src={NATION_DATA[selectedDeck.allyNation].icon} 
+                          style={{ width: settings.logoSize * 0.77, height: settings.logoSize * 0.77, opacity: settings.logoOpacity * (selectedTablecloth ? 1 : 0.6) }}
+                          className="object-contain transition-all duration-300" 
+                          alt="ally"
+                        />
+                      </div>
                     </div>
-                    <span className="mt-2 text-sm text-gray-500 group-hover:text-kards-gold">导入新卡组</span>
-                  </button>
-                </div>
-              </>
+                  ) : (
+                    <img 
+                      src={NATION_DATA[selectedDeck.mainNation].icon} 
+                      style={{ width: settings.logoSize * 1.1, height: settings.logoSize * 1.1, opacity: settings.logoOpacity * (selectedTablecloth ? 1.2 : 0.8) }}
+                      className="object-contain transition-all duration-300" 
+                      alt="nation"
+                    />
+                  )}
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
+
+          {/* Scrollable Content Container */}
+          <div className="h-full w-full overflow-y-auto no-scrollbar relative z-10 flex flex-col items-center p-12">
+            {activeMenu === 'decks' && (
+              <div 
+                style={{ 
+                  display: 'grid',
+                  gridTemplateColumns: `repeat(auto-fill, minmax(${10 * settings.uiScale}rem, 1fr))`,
+                  gap: `${0.5 * settings.uiScale}rem`,
+                  justifyItems: 'center'
+                }}
+                className="max-w-7xl w-full relative"
+              >
+                {sortedDecks.map((deck) => (
+                  <DeckCard 
+                    key={deck.id}
+                    deck={deck}
+                    selected={selectedDeckId === deck.id}
+                    onClick={() => setSelectedDeckId(deck.id)}
+                    settings={settings}
+                  />
+                ))}
+
+                {/* Add Deck Placeholder */}
+                <button 
+                  onClick={() => setShowImportModal(true)}
+                  className="flex flex-col items-center group flex-shrink-0"
+                >
+                  <div 
+                    style={{ 
+                      backgroundColor: settings.isDarkMode 
+                        ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` 
+                        : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                      width: `${10 * settings.uiScale}rem`
+                    }}
+                    className="aspect-[5/7] military-border backdrop-blur-sm flex items-center justify-center group-hover:border-kards-gold transition-all rounded-lg"
+                  >
+                    <Plus style={{ width: `${3 * settings.uiScale}rem`, height: `${3 * settings.uiScale}rem` }} className="text-gray-600 group-hover:text-kards-gold" />
+                  </div>
+                  <span className="mt-2 text-sm text-gray-500 group-hover:text-kards-gold" style={{ fontSize: `${0.875 * settings.uiScale}rem` }}>导入新卡组</span>
+                </button>
+              </div>
             )}
 
             {activeMenu === 'collection' && (
-              <div className="max-w-4xl w-full relative z-10">
+              <div className="max-w-4xl w-full relative">
                 <div className="flex justify-between items-center mb-8">
-                  <h2 className="text-2xl font-bold tracking-widest text-[#e0e0e0] flex items-center gap-3">
-                    <Library className="w-8 h-8 text-kards-gold" /> 我的合集
+                  <h2 className="text-2xl font-bold tracking-widest text-kards-text flex items-center gap-3">
+                    <Library className="w-8 h-8 text-kards-gold" /> 卡组合集
                   </h2>
                   <button 
                     onClick={() => {
@@ -878,11 +941,22 @@ export default function App() {
                           }
                         }
                       }}
-                      className="bg-[#1a1a1a]/60 backdrop-blur-md border border-white/10 group/col relative overflow-hidden shadow-xl rounded-lg"
-                      style={{ zIndex: expandedCollectionId === col.id ? 20 : 10 }}
+                      className="border border-kards-border group/col relative overflow-hidden shadow-xl rounded-lg transition-colors"
+                      style={{ 
+                        backgroundColor: settings.isDarkMode 
+                          ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` 
+                          : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                        backdropFilter: `blur(${settings.importBoxOpacity * 12}px)`,
+                        zIndex: expandedCollectionId === col.id ? 20 : 10 
+                      }}
                     >
                       <div 
                         className={`p-4 flex items-center justify-between cursor-pointer hover:bg-white/5 transition-colors z-10 relative ${expandedCollectionId !== col.id ? 'active:bg-white/10 active:cursor-move' : ''}`}
+                        style={{ 
+                          backgroundColor: settings.isDarkMode 
+                            ? `rgba(255, 255, 255, ${settings.importBoxOpacity * 0.05})` 
+                            : `rgba(0, 0, 0, ${settings.importBoxOpacity * 0.05})`,
+                        }}
                         onClick={() => setExpandedCollectionId(expandedCollectionId === col.id ? null : col.id)}
                       >
                         <div className="flex items-center gap-4 pointer-events-none">
@@ -933,7 +1007,8 @@ export default function App() {
                             initial={{ height: 0, opacity: 0 }}
                             animate={{ height: 'auto', opacity: 1 }}
                             exit={{ height: 0, opacity: 0 }}
-                            className="bg-black/40"
+                            style={{ backgroundColor: `rgba(0, 0, 0, ${settings.importBoxOpacity * 0.3})` }}
+                            className="transition-colors"
                           >
                             <div className="p-4 border-t border-white/5 space-y-2">
                               {col.deckIds.length === 0 ? (
@@ -963,7 +1038,8 @@ export default function App() {
                                             }
                                           }
                                         }}
-                                        className="flex items-center justify-between p-3 bg-white/5 hover:bg-white/10 transition-colors group/item cursor-move active:bg-white/20 active:scale-[1.01] z-0 active:z-10 relative"
+                                        style={{ backgroundColor: settings.isDarkMode ? `rgba(255, 255, 255, ${settings.importBoxOpacity * 0.1})` : `rgba(0, 0, 0, ${settings.importBoxOpacity * 0.05})` }}
+                                        className="flex items-center justify-between p-3 hover:bg-white/10 transition-colors group/item cursor-move active:bg-white/20 active:scale-[1.01] z-0 active:z-10 relative border-b border-white/5"
                                       >
                                         <div className="flex items-center gap-4 flex-1 pointer-events-none">
                                           <div className="flex flex-col gap-0.5">
@@ -1023,10 +1099,17 @@ export default function App() {
                   ))}
                   
                   {collections.length === 0 && (
-                    <div className="text-center py-20 bg-white/5 military-border backdrop-blur-sm">
-                      <Library className="w-16 h-16 text-gray-700 mx-auto mb-4" />
-                      <p className="text-gray-500 font-bold tracking-widest uppercase">暂无合集</p>
-                      <p className="text-gray-600 text-sm mt-2">点击右上角按钮开始构筑您的战术合集</p>
+                    <div 
+                      style={{ 
+                        backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                        backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
+                      }}
+                      className="text-center py-24 military-border rounded-xl shadow-2xl relative overflow-hidden"
+                    >
+                      <div className="absolute inset-0 bg-gradient-to-b from-white/5 to-transparent pointer-events-none" />
+                      <Library className="w-16 h-16 text-kards-gold/30 mx-auto mb-6 relative z-10" />
+                      <p className="text-kards-text font-black tracking-[0.4em] text-2xl mb-3 relative z-10">暂无合集</p>
+                      <p className="text-gray-500 text-sm font-medium tracking-widest relative z-10">点击右上角按钮开始构筑您的卡组合集</p>
                     </div>
                   )}
                 </div>
@@ -1037,7 +1120,14 @@ export default function App() {
 
         {/* Right Details Panel */}
         {activeMenu !== 'collection' && (
-          <aside className="w-[320px] bg-[#1a1a1a] border-l border-white/10 flex flex-col z-10 overflow-hidden">
+          <aside 
+            className="w-[320px] border-l border-kards-border flex flex-col z-10 overflow-hidden transition-colors"
+            style={{ 
+              backgroundColor: settings.isDarkMode 
+                ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` 
+                : `rgba(26, 26, 26, ${settings.importBoxOpacity})` 
+            }}
+          >
             {selectedDeck ? (
               <motion.div 
                 initial={{ opacity: 0, x: 20 }}
@@ -1048,14 +1138,14 @@ export default function App() {
               <div className="p-6 flex-1 overflow-y-auto no-scrollbar min-h-0 w-full">
                 <input 
                   type="text"
-                  value={selectedDeck.name}
+                  value={selectedDeck.name || ''}
                   onChange={(e) => handleNameChange(selectedDeck.id, e.target.value)}
                   className="text-xl font-bold tracking-tight mb-4 text-center bg-transparent border-none focus:outline-none focus:ring-1 focus:ring-kards-gold/30 rounded w-full"
                 />
                 
                 <div className="flex flex-col items-center">
                   <div 
-                    className="w-48 aspect-[5/7] military-border overflow-hidden relative group cursor-pointer bg-[#222] flex items-center justify-center shrink-0 shadow-2xl"
+                    className="w-48 aspect-[5/7] military-border overflow-hidden relative group cursor-pointer bg-kards-gray-alt flex items-center justify-center shrink-0 shadow-2xl"
                     onClick={() => setShowCardBackModal(selectedDeck.id)}
                   >
                       <div className="absolute inset-0 bg-black/60 opacity-0 group-hover:opacity-100 transition-opacity z-20 flex items-center justify-center backdrop-blur-sm rounded-md">
@@ -1089,7 +1179,7 @@ export default function App() {
                 </div>
               </div>
 
-              <div className="p-4 pt-4 border-t border-white/5 bg-[#1a1a1a] space-y-4 shrink-0 w-full min-w-0">
+              <div className="p-4 pt-4 border-t border-kards-border bg-kards-gray space-y-4 shrink-0 w-full min-w-0 transition-colors">
                 <div className="flex gap-2 items-center overflow-x-auto py-2 w-full max-w-[280px] custom-scrollbar">
                   <div className="flex-shrink-0 flex items-center gap-2">
                     {addingTagToDeckId === selectedDeck.id ? (
@@ -1187,7 +1277,11 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md bg-[#222] military-border p-8 shadow-2xl"
+              className="relative w-full max-w-md military-border p-8 shadow-2xl transition-all"
+              style={{ 
+                backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
+              }}
             >
               <button 
                 onClick={handleCloseImportModal}
@@ -1205,7 +1299,7 @@ export default function App() {
                   <label className="block text-xs uppercase tracking-wider text-gray-500 mb-2 font-bold">卡组名称（选填）</label>
                   <input 
                     type="text" 
-                    value={importName}
+                    value={importName || ''}
                     onChange={(e) => setImportName(e.target.value)}
                     placeholder="输入卡组名称，留空则使用默认名称"
                     className="w-full bg-black/50 border border-white/10 px-4 py-3 text-white focus:outline-none focus:border-kards-gold transition-colors mb-4 rounded-md"
@@ -1213,7 +1307,7 @@ export default function App() {
                   <label className="block text-xs uppercase tracking-wider text-gray-500 mb-2 font-bold">输入卡组码</label>
                   <input 
                     type="text" 
-                    value={importCode}
+                    value={importCode || ''}
                     onChange={(e) => {
                       setImportCode(e.target.value);
                       setErrorStatus(null);
@@ -1264,7 +1358,12 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-4xl max-h-[80vh] bg-[#222] military-border p-8 shadow-2xl flex flex-col z-50 rounded-xl"
+              className="relative w-full max-w-4xl max-h-[80vh] military-border p-8 shadow-2xl flex flex-col z-50 rounded-xl transition-colors"
+              style={{ 
+                backgroundColor: settings.isDarkMode 
+                  ? `rgba(20, 20, 20, ${settings.importBoxOpacity})` 
+                  : `rgba(26, 26, 26, ${settings.importBoxOpacity})` 
+              }}
             >
               <button 
                 onClick={() => setShowTableclothModal(false)}
@@ -1300,7 +1399,7 @@ export default function App() {
                   {/* Default / Empty Option */}
                   <div 
                     onClick={() => setSelectedTablecloth(null)}
-                    className={`aspect-video military-border flex flex-col items-center justify-center cursor-pointer transition-all ${!selectedTablecloth ? 'border-kards-gold bg-kards-gold/10' : 'bg-[#111] hover:bg-white/5 opacity-60 hover:opacity-100'}`}
+                    className={`aspect-video military-border flex flex-col items-center justify-center cursor-pointer transition-all ${!selectedTablecloth ? 'border-kards-gold bg-kards-gold/10' : 'bg-kards-bg hover:bg-white/5 opacity-60 hover:opacity-100'}`}
                   >
                     <ImageIcon className="w-8 h-8 mb-2 text-gray-500" />
                     <span className="text-xs font-bold uppercase tracking-widest">默认桌布</span>
@@ -1386,7 +1485,7 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-4xl max-h-[80vh] bg-[#222] military-border p-8 shadow-2xl flex flex-col"
+              className="relative w-full max-w-4xl max-h-[80vh] bg-kards-gray military-border p-8 shadow-2xl flex flex-col"
             >
               <button 
                 onClick={() => setShowCardBackModal(null)}
@@ -1405,7 +1504,7 @@ export default function App() {
                     <div className="flex items-center gap-2">
                        <input 
                          type="text"
-                         value={newCatName}
+                         value={newCatName || ''}
                          onChange={e => setNewCatName(e.target.value)}
                          placeholder="分类名称..."
                          className="bg-black/50 border border-white/20 px-3 py-1 text-sm focus:outline-none focus:border-kards-gold text-white w-32"
@@ -1605,7 +1704,7 @@ export default function App() {
                                   <input 
                                      autoFocus
                                      className="w-full bg-black border border-kards-gold text-white text-xs px-1 py-0.5 focus:outline-none"
-                                     value={editingCardName}
+                                     value={editingCardName || ''}
                                      onChange={e => setEditingCardName(e.target.value)}
                                      onKeyDown={e => {
                                         if (e.key === 'Enter') {
@@ -1659,10 +1758,14 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-2xl bg-[#1a1a1a] military-border shadow-2xl flex flex-col max-h-[70vh]"
+              className="relative w-full max-w-2xl military-border shadow-2xl flex flex-col max-h-[70vh] transition-all"
+              style={{ 
+                backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
+              }}
             >
               <div className="p-6 border-b border-white/10 flex items-center justify-between">
-                <h3 className="text-xl font-bold tracking-widest text-[#e0e0e0]">选择要添加的卡组</h3>
+                <h3 className="text-xl font-bold tracking-widest text-kards-text">选择要添加的卡组</h3>
                 <button onClick={() => setShowAddDeckToCollectionModal(null)} className="text-gray-500 hover:text-white"><X className="w-6 h-6" /></button>
               </div>
               <div className="flex-1 overflow-y-auto p-4 space-y-2 no-scrollbar">
@@ -1715,7 +1818,7 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-2xl bg-[#222] military-border p-6 shadow-2xl flex flex-col items-center"
+              className="relative w-full max-w-2xl bg-kards-gray-alt military-border p-6 shadow-2xl flex flex-col items-center"
             >
               <h3 className="text-xl font-bold mb-4 text-center">
                 裁剪 {cropQueue[0].type === 'cardback' ? '卡背' : '桌布'}
@@ -1739,7 +1842,7 @@ export default function App() {
               <div className="w-full flex flex-col gap-4 my-6 text-white bg-black/20 p-4 military-border">
                 {/* Position Controls */}
                 <div className="flex items-center gap-4">
-                  <span className="text-sm font-bold w-12 shrink-0 tracking-widest text-[#a0a0a0]">位置</span>
+                  <span className="text-sm font-bold w-12 shrink-0 tracking-widest text-kards-text-muted">位置</span>
                   <div className="flex-1 flex items-center justify-center gap-2">
                     <button onClick={() => setCropState(s => ({ ...s, crop: { ...s.crop, x: s.crop.x - 1 } }))} className="w-8 h-8 flex items-center justify-center bg-white/10 hover:bg-white/20 border border-white/20 transition-colors">←</button>
                     <div className="flex flex-col gap-2">
@@ -1757,11 +1860,11 @@ export default function App() {
 
                 {/* Zoom Controls */}
                 <div className="flex items-center gap-4">
-                  <span className="text-sm font-bold w-12 shrink-0 tracking-widest text-[#a0a0a0]">缩放</span>
+                  <span className="text-sm font-bold w-12 shrink-0 tracking-widest text-kards-text-muted">缩放</span>
                   <button onClick={() => setCropState(s => ({ ...s, zoom: Math.max(0.1, s.zoom - 0.01) }))} className="px-3 py-1 bg-white/10 hover:bg-white/20 font-bold border border-white/20">-</button>
                   <input
                     type="range"
-                    value={cropState.zoom}
+                    value={cropState.zoom || 1}
                     min={0.1}
                     max={3}
                     step={0.0001}
@@ -1808,14 +1911,14 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-sm bg-[#222] military-border p-6 shadow-2xl flex flex-col items-center"
+              className="relative w-full max-w-sm bg-kards-gray-alt military-border p-6 shadow-2xl flex flex-col items-center"
             >
               <h3 className="text-xl font-bold mb-4 text-center">上传自定义卡背</h3>
               <div className="w-full mb-4">
                 <label className="block text-sm text-gray-400 mb-2">选择分类</label>
                 <select 
                   className="w-full bg-black/50 border border-white/20 p-2 text-white focus:outline-none focus:border-kards-gold"
-                  value={uploadCategory}
+                  value={uploadCategory || ''}
                   onChange={e => setUploadCategory(e.target.value)}
                 >
                   <optgroup label="默认分类">
@@ -1870,13 +1973,17 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md bg-[#222] military-border p-6 shadow-2xl flex flex-col"
+              className="relative w-full max-w-md military-border p-6 shadow-2xl flex flex-col transition-all"
+              style={{ 
+                backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
+              }}
             >
-              <h3 className="text-xl font-bold mb-4 text-[#e0e0e0] tracking-widest">创建新合集</h3>
+              <h3 className="text-xl font-bold mb-4 text-kards-text tracking-widest">创建新合集</h3>
               <input
                 type="text"
                 autoFocus
-                value={newCollectionName}
+                value={newCollectionName || ''}
                 onChange={(e) => setNewCollectionName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && newCollectionName.trim()) {
@@ -1891,7 +1998,7 @@ export default function App() {
                   }
                 }}
                 placeholder="请输入合集名称..."
-                className="w-full bg-[#111] border border-white/20 text-white p-3 mb-6 focus:outline-none focus:border-kards-gold"
+                className="w-full bg-kards-bg border border-kards-border text-kards-text p-3 mb-6 focus:outline-none focus:border-kards-gold"
               />
               <div className="flex gap-4">
                 <button 
@@ -1939,12 +2046,12 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-sm bg-[#222] border-t-4 border-red-600 p-6 shadow-2xl flex flex-col items-center"
+              className="relative w-full max-w-sm bg-kards-gray-alt border-t-4 border-red-600 p-6 shadow-2xl flex flex-col items-center"
             >
               <Trash2 className="w-12 h-12 text-red-500 mb-4" />
-              <h3 className="text-lg font-bold mb-2 text-center text-[#e0e0e0]">删除合集</h3>
-              <p className="text-gray-400 text-center mb-6 text-sm">
-                确定要删除合集 <span className="text-white font-bold">"{collectionToDelete.name}"</span> 吗？此操作无法撤销。
+              <h3 className="text-lg font-bold mb-2 text-center text-kards-text">删除合集</h3>
+              <p className="text-kards-text-muted text-center mb-6 text-sm">
+                确定要删除合集 <span className="text-kards-text font-bold">"{collectionToDelete.name}"</span> 吗？此操作无法撤销。
               </p>
               <div className="flex w-full gap-4">
                 <button 
@@ -1983,13 +2090,13 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0, y: 20 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
               exit={{ scale: 0.9, opacity: 0, y: 20 }}
-              className="relative w-full max-w-md bg-[#222] military-border p-6 shadow-2xl flex flex-col"
+              className="relative w-full max-w-md bg-kards-gray military-border p-6 shadow-2xl flex flex-col"
             >
-              <h3 className="text-xl font-bold mb-4 text-[#e0e0e0] tracking-widest">重命名合集</h3>
+              <h3 className="text-xl font-bold mb-4 text-kards-text tracking-widest">重命名合集</h3>
               <input
                 type="text"
                 autoFocus
-                value={renameCollectionName}
+                value={renameCollectionName || ''}
                 onChange={(e) => setRenameCollectionName(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Enter' && renameCollectionName.trim()) {
@@ -2000,7 +2107,7 @@ export default function App() {
                   }
                 }}
                 placeholder="请输入新的合集名称..."
-                className="w-full bg-[#111] border border-white/20 text-white p-3 mb-6 focus:outline-none focus:border-kards-gold"
+                className="w-full bg-kards-bg border border-kards-border text-kards-text p-3 mb-6 focus:outline-none focus:border-kards-gold"
               />
               <div className="flex gap-4">
                 <button 
@@ -2044,10 +2151,10 @@ export default function App() {
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
-              className="relative w-full max-w-3xl bg-[#222] military-border shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
+              className="relative w-full max-w-3xl bg-kards-gray-alt military-border shadow-2xl flex flex-col max-h-[90vh] overflow-hidden"
             >
-              <div className="p-4 border-b border-white/10 flex items-center justify-between bg-[#1a1a1a]">
-                <h3 className="text-lg font-bold tracking-widest text-[#e0e0e0] flex items-center gap-2">
+              <div className="p-4 border-b border-kards-border flex items-center justify-between bg-kards-gray">
+                <h3 className="text-lg font-bold tracking-widest text-kards-text flex items-center gap-2">
                   <ImageIcon className="w-5 h-5 text-kards-gold" />
                   卡组解析图片 {deckImageModal.deck && `- ${deckImageModal.deck.name}`}
                 </h3>
@@ -2055,7 +2162,7 @@ export default function App() {
                   <X className="w-6 h-6" />
                 </button>
               </div>
-              <div className="flex-1 overflow-auto p-6 flex flex-col items-center justify-center bg-[#111]">
+              <div className="flex-1 overflow-auto p-6 flex flex-col items-center justify-center bg-kards-bg">
                 {deckImageModal.loading ? (
                   <div className="flex flex-col items-center justify-center py-12 text-gray-400">
                     <div className="w-12 h-12 border-4 border-kards-gold border-t-transparent rounded-full animate-spin mb-4"></div>
@@ -2080,6 +2187,166 @@ export default function App() {
                     className="max-w-full max-h-[70vh] object-contain shadow-2xl"
                   />
                 ) : null}
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+      {/* --- Settings Modal --- */}
+      <AnimatePresence>
+        {showSettingsModal && (
+          <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+            <motion.div 
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setShowSettingsModal(false)}
+              className="absolute inset-0 bg-black/80 backdrop-blur-md"
+            />
+            <motion.div 
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.9, opacity: 0, y: 20 }}
+              className="relative w-full max-w-md military-border p-8 shadow-2xl flex flex-col gap-6 transition-all"
+              style={{ 
+                backgroundColor: settings.isDarkMode ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` : `rgba(26, 26, 26, ${settings.importBoxOpacity})`,
+                backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
+              }}
+            >
+              <div className="flex items-center justify-between border-b border-white/5 pb-4">
+                <h3 className="text-xl font-bold tracking-[0.2em] text-kards-text flex items-center gap-3 decoration-kards-gold/50 underline-offset-8 underline">
+                  <Settings className="w-6 h-6 text-kards-gold" /> 全局设置
+                </h3>
+                <button onClick={() => setShowSettingsModal(false)} className="text-gray-500 hover:text-white transition-colors">
+                  <X className="w-6 h-6" />
+                </button>
+              </div>
+
+              <div className="space-y-8">
+                {/* Dark Mode */}
+                <div className="flex items-center justify-between">
+                  <div className="flex flex-col">
+                    <span className="text-sm font-bold text-gray-200 tracking-wider">深色模式</span>
+                    <span className="text-[10px] text-gray-500 uppercase tracking-tighter">切换应用视觉主题</span>
+                  </div>
+                  <button 
+                    onClick={() => setSettings(s => ({ ...s, isDarkMode: !s.isDarkMode }))}
+                    className={`w-14 h-7 rounded-full transition-colors relative flex items-center px-1 ${settings.isDarkMode ? 'bg-kards-gold' : 'bg-gray-700'}`}
+                  >
+                    <motion.div 
+                      animate={{ x: settings.isDarkMode ? 24 : 0 }}
+                      className="w-5 h-5 bg-white rounded-full shadow-md"
+                    />
+                  </button>
+                </div>
+
+                {/* Border Radius */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-200 tracking-wider">圆角程度</span>
+                    <span className="text-xs font-mono text-kards-gold">{settings.borderRadius}px</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="0"
+                    max="24"
+                    step="1"
+                    value={settings.borderRadius ?? DEFAULT_SETTINGS.borderRadius}
+                    onChange={e => setSettings(s => ({ ...s, borderRadius: parseInt(e.target.value) }))}
+                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-600 font-bold uppercase tracking-widest">
+                    <span>Brutalist</span>
+                    <span>Modern</span>
+                  </div>
+                </div>
+
+                {/* Import Box Opacity */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-200 tracking-wider">UI组件透明度</span>
+                    <span className="text-xs font-mono text-kards-gold">{Math.round(settings.importBoxOpacity * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={settings.importBoxOpacity ?? DEFAULT_SETTINGS.importBoxOpacity}
+                    onChange={e => setSettings(s => ({ ...s, importBoxOpacity: parseFloat(e.target.value) }))}
+                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                {/* UI Scale */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-200 tracking-wider">UI组件大小</span>
+                    <span className="text-xs font-mono text-kards-gold">{Math.round(settings.uiScale * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="0.5"
+                    max="1.5"
+                    step="0.05"
+                    value={settings.uiScale ?? DEFAULT_SETTINGS.uiScale}
+                    onChange={e => setSettings(s => ({ ...s, uiScale: parseFloat(e.target.value) }))}
+                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                  <div className="flex justify-between text-[10px] text-gray-600 font-bold uppercase tracking-widest">
+                    <span>精致</span>
+                    <span>巨大</span>
+                  </div>
+                </div>
+
+                {/* Logo Size */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-200 tracking-wider">背景Logo大小</span>
+                    <span className="text-xs font-mono text-kards-gold">{settings.logoSize}px</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="200"
+                    max="800"
+                    step="10"
+                    value={settings.logoSize ?? DEFAULT_SETTINGS.logoSize}
+                    onChange={e => setSettings(s => ({ ...s, logoSize: parseInt(e.target.value) }))}
+                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+
+                {/* Logo Opacity */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span className="text-sm font-bold text-gray-200 tracking-wider">背景Logo透明度</span>
+                    <span className="text-xs font-mono text-kards-gold">{Math.round(settings.logoOpacity * 100)}%</span>
+                  </div>
+                  <input 
+                    type="range"
+                    min="0"
+                    max="1"
+                    step="0.01"
+                    value={settings.logoOpacity ?? DEFAULT_SETTINGS.logoOpacity}
+                    onChange={e => setSettings(s => ({ ...s, logoOpacity: parseFloat(e.target.value) }))}
+                    className="w-full accent-kards-gold h-1.5 bg-gray-800 rounded-lg appearance-none cursor-pointer"
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4 pt-6 border-t border-white/5 flex gap-4">
+                <button 
+                  onClick={() => setSettings(DEFAULT_SETTINGS)}
+                  className="flex-1 py-3 text-xs font-bold uppercase tracking-widest text-gray-500 hover:text-white transition-colors"
+                >
+                  重置默认
+                </button>
+                <button 
+                  onClick={() => setShowSettingsModal(false)}
+                  className="flex-1 bg-kards-accent py-3 font-bold text-white shadow-lg hover:brightness-110 active:scale-[0.98] transition-all rounded-sm"
+                >
+                  保存并关闭
+                </button>
               </div>
             </motion.div>
           </div>
@@ -2114,10 +2381,11 @@ interface DeckCardProps {
   deck: Deck;
   selected: boolean;
   onClick: () => void;
+  settings: AppSettings;
   key?: React.Key;
 }
 
-function DeckCard({ deck, selected, onClick }: DeckCardProps) {
+function DeckCard({ deck, selected, onClick, settings }: DeckCardProps) {
   const mainData = NATION_DATA[deck.mainNation];
   const allyData = deck.allyNation ? NATION_DATA[deck.allyNation] : null;
 
@@ -2127,15 +2395,25 @@ function DeckCard({ deck, selected, onClick }: DeckCardProps) {
       className="flex flex-col items-center group cursor-pointer"
       onClick={onClick}
     >
-      <div className={`
-        w-40 aspect-[5/7] relative transition-all duration-300 shrink-0
-        ${selected ? 'scale-105 z-10' : 'hover:brightness-110'}
-      `}>
+      <div 
+        style={{ width: `${10 * settings.uiScale}rem` }}
+        className={`
+          aspect-[5/7] relative transition-all duration-300 shrink-0
+          ${selected ? 'scale-105 z-10' : 'hover:brightness-110'}
+        `}
+      >
         {/* Card Body */}
-        <div className={`
-          w-full h-full paper-texture military-border relative overflow-hidden bg-[#222]/65 backdrop-blur-[2px] flex flex-col items-center justify-center rounded-md
-          ${selected ? 'ring-4 ring-kards-gold ring-offset-4 ring-offset-kards-bg' : ''}
-        `}>
+        <div 
+          style={{ 
+            backgroundColor: settings.isDarkMode 
+              ? `rgba(15, 15, 15, ${settings.importBoxOpacity})` 
+              : `rgba(26, 26, 26, ${settings.importBoxOpacity})` 
+          }}
+          className={`
+            w-full h-full paper-texture military-border relative overflow-hidden backdrop-blur-[2px] flex flex-col items-center justify-center rounded-md transition-all
+            ${selected ? 'ring-4 ring-kards-gold ring-offset-4 ring-offset-kards-bg' : ''}
+          `}
+        >
           <img 
             src={deck.cardBackUrl || mainData.defaultBack || '/assets/cardbacks/Common/BasicBeta.jpg'} 
             alt={deck.name}
@@ -2148,7 +2426,10 @@ function DeckCard({ deck, selected, onClick }: DeckCardProps) {
           />
           
           {/* Small flags at the bottom center */}
-          <div className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-end gap-1 bg-black/70 p-1 rounded-sm backdrop-blur-sm border border-white/10 z-10">
+          <div 
+            className="absolute bottom-1.5 left-1/2 -translate-x-1/2 flex items-end gap-1 bg-black/70 p-1 rounded-sm backdrop-blur-sm border border-white/10 z-10 origin-bottom"
+            style={{ transform: `translateX(-50%) scale(${settings.uiScale})` }}
+          >
             <img src={getFlagUrl(mainData.flag)} className="w-5 h-3.5 object-contain" alt="main" onError={(e) => { e.currentTarget.style.display = 'none'; }} />
             {allyData && (
               <div className="flex items-end gap-1">
@@ -2159,7 +2440,10 @@ function DeckCard({ deck, selected, onClick }: DeckCardProps) {
           </div>
 
           {/* Warnings on card back */}
-          <div className="absolute inset-0 flex flex-col items-center justify-end p-2 pb-8 gap-1 pointer-events-none">
+          <div 
+            className="absolute inset-0 flex flex-col items-center justify-end p-2 pb-8 gap-1 pointer-events-none origin-bottom"
+            style={{ transform: `scale(${settings.uiScale})` }}
+          >
             {deck.warnings.map((w, i) => (
               <span key={i} className="bg-red-600/90 text-[10px] text-white px-2 py-0.5 font-bold uppercase tracking-tight shadow-lg whitespace-nowrap">
                 {w}
@@ -2174,7 +2458,10 @@ function DeckCard({ deck, selected, onClick }: DeckCardProps) {
 
           {/* Favorite Indicator */}
           {deck.isFavorite && (
-            <div className="absolute -top-1 -left-1 text-kards-gold drop-shadow-[0_0_12px_rgba(197,160,89,1)]">
+            <div 
+              className="absolute -top-1 -left-1 text-kards-gold drop-shadow-[0_0_12px_rgba(197,160,89,1)] origin-top-left"
+              style={{ transform: `scale(${settings.uiScale})` }}
+            >
               <Star className="w-12 h-12 fill-current" />
             </div>
           )}

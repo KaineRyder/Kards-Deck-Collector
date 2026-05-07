@@ -2,19 +2,49 @@
 
 @theme {
   --color-kards-bg: #1a1a1a;
-  --color-kards-gray: #2a2a2a;
+  --color-kards-gray: #242424;
+  --color-kards-gray-alt: #1a1a1a;
   --color-kards-accent: #8b201a; /* 暗红 */
   --color-kards-gold: #c5a059;
   --color-kards-paper: #e1dcc5;
+  --color-kards-text: #e0e0e0;
+  --color-kards-text-muted: #a0a0a0;
+  --color-kards-border: rgba(255, 255, 255, 0.08);
+  
   --font-tactical: "Inter", ui-sans-serif, system-ui, sans-serif;
+  
+  --radius-base: 6px;
+  --radius-xs: calc(var(--radius-base) * 0.5);
+  --radius-sm: calc(var(--radius-base) * 0.75);
+  --radius-md: var(--radius-base);
+  --radius-lg: calc(var(--radius-base) * 1.5);
+  --radius-xl: calc(var(--radius-base) * 2);
+  --radius-2xl: calc(var(--radius-base) * 3);
+  --radius-3xl: calc(var(--radius-base) * 4);
 }
 
 @layer base {
   body {
-    @apply bg-kards-bg text-gray-100 font-tactical overflow-hidden;
+    @apply bg-kards-bg text-kards-text font-tactical overflow-hidden transition-colors duration-300;
     background-image: url("https://www.transparenttextures.com/patterns/carbon-fibre.png"), 
                       radial-gradient(circle at center, #2c2c2c 0%, #1a1a1a 100%);
   }
+
+  body.dark {
+    --color-kards-bg: #0a0a0a;
+    --color-kards-gray: #151515;
+    --color-kards-gray-alt: #0d0d0d;
+    --color-kards-text: #cccccc;
+    --color-kards-text-muted: #808080;
+    --color-kards-border: rgba(255, 255, 255, 0.05);
+
+    background-image: url("https://www.transparenttextures.com/patterns/carbon-fibre.png"), 
+                      radial-gradient(circle at center, #1a1a1a 0%, #050505 100%);
+  }
+}
+
+.rounded-base {
+  border-radius: var(--radius-base);
 }
 
 /* 噪点纹理滤镜 */
@@ -36,9 +66,10 @@
 
 /* 军事金属边框 */
 .military-border {
-  border: 2px solid #333;
-  border-radius: 6px;
+  border: 2px solid var(--color-kards-border);
+  border-radius: var(--radius-base);
   box-shadow: inset 0 0 10px rgba(0,0,0,0.5), 1px 1px 0 rgba(255,255,255,0.05);
+  transition: border-radius 0.2s ease, border-color 0.2s ease;
 }
 
 /* 隐藏滚动条但保留功能 */
