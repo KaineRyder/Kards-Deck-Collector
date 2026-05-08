@@ -51,6 +51,8 @@
 ```text
 /
 ├── public/assets/          # 游戏内置素材 (卡背、国旗、图标、桌布)
+├── electron/               # Electron 主进程与预加载脚本
+├── scripts/                # 桌面构建、启动与打包辅助脚本
 ├── src/
 │   ├── components/         # 复用 UI 组件
 │   ├── lib/
@@ -77,6 +79,115 @@
 ## ⚠️ 存储说明
 
 本应用将图片（如自定义桌布和卡背）以 Base64 格式存储在浏览器的 **IndexedDB** 中。虽然容量远大于 localStorage，但仍然建议单张图片压缩在 500KB 以内，以获得最流畅的加载体验。
+
+## Windows 桌面版
+
+项目已经加入 Electron 桌面运行时，支持 Windows 便携版 exe。
+
+常用开发命令：
+
+- `npm run dev:desktop`：启动 Vite + Electron 桌面开发版。
+- `npm run build:desktop`：构建网页端资源和 Electron 主进程。
+- `npm run dist:win:dir`：生成 Windows unpacked 测试版，输出目录为 `release/win-unpacked/`。
+
+unpacked 测试版入口：
+
+```text
+release/win-unpacked/KARDS Deck Collector.exe
+```
+
+设置窗口里新增了“数据备份”，可以导出或导入卡组、合集、设置、自定义桌布、自定义卡背和缓存图片。桌面版生成卡组解析图时会优先走 Electron 主进程代理，并且便携版默认内置了解析图服务，首次启动即可直接使用。
+
+### Windows 打包
+
+- `npm run dist:win:portable`：生成 Windows 便携版，输出 `release/KARDS Deck Collector 0.0.0.exe`。
+- `npm run dist:win:portable:dev`：生成带调试配置入口的便携版，便于本地联调解析图服务。
+
+便携版默认不需要额外的 `app-config.json`。如果你想切换服务线路，可以在程序设置里的“卡组解析图”中选择“自定义 URL”并保存。
+
+### 卡组解析图服务配置
+
+桌面版设置里提供两种方式：
+
+1. `内置默认`：直接使用打包内置的解析图服务，设置界面不会展示默认地址。
+2. `自定义 URL`：手动填入你自己的服务地址。
+
+如果你确实想手工写配置文件，也可以复制示例：
+
+```powershell
+Copy-Item app-config.example.json app-config.json
+```
+
+然后编辑 `app-config.json`：
+
+```json
+{
+  "deckImageServerMode": "custom",
+  "deckImageServerUrl": "https://your-server.example/api/kards/draw_deck",
+  "deckCodeField": "deck_code",
+  "deckCodeEncoding": "plain",
+  "allowInsecureTls": true
+}
+```
+
+当前桌面版运行时的优先级是：
+
+1. 设置中保存的自定义 URL（保存在用户数据目录的 `app-config.json`）
+2. 程序内置默认服务
+
+发送到服务器的请求体为：
+
+```json
+{
+  "deck_code": "%%27|0B0l0meFgvjeooq0qnsOsQv8w2w7;0d1VfXjMmToYqYw8wawcwS;wb;"
+}
+```
+
+如果服务器端需要 Base64，把配置改成：
+
+```json
+{
+  "deckImageServerUrl": "https://your-server.example/api/kards/draw_deck",
+  "deckCodeField": "deck_code",
+  "deckCodeEncoding": "base64",
+  "allowInsecureTls": true
+}
+```
+
+此时请求体为：
+
+```json
+{
+  "deck_code": "base64编码后的卡组码",
+  "encoding": "base64"
+}
+```
+
+服务器可以直接返回图片二进制，也可以返回图片 URL：
+
+```json
+{
+  "imageUrl": "https://your-server.example/generated-image.png"
+}
+```
+
+也兼容返回 `image_url` 或 `url` 字段。如果服务器返回 Base64 图片，支持 `imageData`、`image_data`、`imageBase64`、`image_base64`，也支持放在 `data.image_base64` 里。程序会先解码 Base64 并识别真实图片格式，再交给前端显示。
+
+### 换行符规范
+
+仓库使用 `.gitattributes` 统一源码、JSON、Markdown、HTML、YAML 等文本文件为 LF 换行，并将图片资源标记为 binary。Windows 上如果遇到换行符提示，可以执行：
+
+```powershell
+git add --renormalize .
+```
+
+注意：`dist:win:dir` 为了避免 Windows 当前用户缺少符号链接权限导致打包失败，会跳过 exe 图标/签名资源编辑。正式安装包可在开启 Windows 开发者模式或管理员权限后再运行完整 `npm run dist:win`。
+
+如果从终端启动 Electron 后窗口立即退出，请检查当前终端是否设置了 `ELECTRON_RUN_AS_NODE=1`。`npm run dev:desktop` 已自动清除此变量；手动运行 exe 时可先执行：
+
+```powershell
+Remove-Item Env:ELECTRON_RUN_AS_NODE -ErrorAction SilentlyContinue
+```
 
 ---
 

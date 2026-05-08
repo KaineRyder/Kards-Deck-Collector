@@ -8,7 +8,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Plus, 
   Trash2, 
@@ -36,7 +36,10 @@ import { motion, AnimatePresence } from 'motion/react';
 import localforage from 'localforage';
 import Cropper from 'react-easy-crop';
 import getCroppedImg from './lib/cropImage';
+import { createBackup, parseBackup, restoreBackup } from './lib/backup';
 import { generateLightModeColors } from './lib/colorUtils';
+import { requestDeckImage } from './lib/deckImageClient';
+import { extractDeckCodeFromText, inferDeckTitleFromText } from './lib/deckImport';
 
 // --- Types ---
 type Nation = 'Germany' | 'Soviet' | 'USA' | 'Japan' | 'Britain' | 'Finland' | 'Italy' | 'France' | 'Poland';
@@ -72,6 +75,12 @@ interface AppSettings {
   lightThemeColor: string;
   uiScale: number;
   deckGap: number;
+}
+
+interface ClipboardDeckCandidate {
+  sourceText: string;
+  code: string;
+  name: string;
 }
 
 const DEFAULT_SETTINGS: AppSettings = {
@@ -322,6 +331,17 @@ export default function App() {
   const [showImportModal, setShowImportModal] = useState(decks.length === 0);
   const [importCode, setImportCode] = useState('');
   const [importName, setImportName] = useState('');
+  const [clipboardDeckCandidate, setClipboardDeckCandidate] = useState<ClipboardDeckCandidate | null>(null);
+  const lastClipboardPromptRef = useRef<string | null>(null);
+  const [backupStatus, setBackupStatus] = useState<string | null>(null);
+  const [deckServiceConfig, setDeckServiceConfig] = useState<KardsDesktopDeckImageConfig>({
+    deckImageServerMode: 'default',
+    deckImageServerUrl: '',
+    deckCodeField: 'deck_code',
+    deckCodeEncoding: 'plain',
+    allowInsecureTls: false,
+  });
+  const [deckServiceStatus, setDeckServiceStatus] = useState<string | null>(null);
   const [activeMenu, setActiveMenu] = useState('decks');
   const [errorStatus, setErrorStatus] = useState<string | null>(null);
   const [showCardBackModal, setShowCardBackModal] = useState<string | null>(null);
@@ -333,6 +353,53 @@ export default function App() {
   const [filterTag, setFilterTag] = useState<string | 'All'>('All');
   
   const [customCategories, setCustomCategories] = useState<{id: string, name: string, backs: {id: string, url: string, name: string}[]}[]>([]);
+
+  useEffect(() => {
+    const readClipboardText = async () => {
+      if (window.kardsDesktop?.readClipboardText) {
+        return window.kardsDesktop.readClipboardText();
+      }
+
+      if (navigator.clipboard?.readText) {
+        return navigator.clipboard.readText();
+      }
+
+      return '';
+    };
+
+    const detectClipboardDeck = async () => {
+      if (!document.hasFocus()) return;
+
+      try {
+        const clipboardText = await readClipboardText();
+        if (!clipboardText.trim()) return;
+
+        const deckCode = extractDeckCodeFromText(clipboardText);
+        if (!deckCode || deckCode === lastClipboardPromptRef.current) return;
+
+        const dismissedCode = sessionStorage.getItem('kards_dismissed_clipboard_deck_code');
+        if (dismissedCode === deckCode) return;
+
+        const { defaultName } = parseDeck(deckCode);
+        const inferredName = inferDeckTitleFromText(clipboardText, deckCode);
+        lastClipboardPromptRef.current = deckCode;
+        setClipboardDeckCandidate({
+          sourceText: clipboardText,
+          code: deckCode,
+          name: inferredName || defaultName,
+        });
+      } catch {
+        // Clipboard access can fail in browsers without permission; ignore silently.
+      }
+    };
+
+    detectClipboardDeck();
+    window.addEventListener('focus', detectClipboardDeck);
+
+    return () => {
+      window.removeEventListener('focus', detectClipboardDeck);
+    };
+  }, []);
 
   useEffect(() => {
     const loadData = async () => {
@@ -502,51 +569,138 @@ export default function App() {
   const [croppedAreaPixels, setCroppedAreaPixels] = useState<any>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<{ type: 'tablecloth' | 'cardback', id: string, catId?: string } | null>(null);
 
+  const getOrGenerateDeckImage = async (code: string) => {
+    const cacheKey = `deck_img_${code}`;
+    const cachedImage = await localforage.getItem<string>(cacheKey);
+    if (cachedImage) return cachedImage;
+
+    const imageData = await requestDeckImage(code);
+    await localforage.setItem(cacheKey, imageData);
+    return imageData;
+  };
+
   const handleGetDeckImage = async (deck: Deck) => {
     setDeckImageModal({ show: true, deck, loading: true, imageUrl: null, error: null });
     try {
-      // 检查缓存
-      const cachedImage = await localforage.getItem<string>(`deck_img_${deck.code}`);
-      if (cachedImage) {
-        setDeckImageModal({ show: true, deck, loading: false, imageUrl: cachedImage, error: null });
+      const imageData = await getOrGenerateDeckImage(deck.code);
+      setDeckImageModal({ show: true, deck, loading: false, imageUrl: imageData, error: null });
+    } catch (err: any) {
+      setDeckImageModal({ show: true, deck, loading: false, imageUrl: null, error: err.message });
+    }
+  };
+
+  const refreshAfterBackupImport = async () => {
+    const loadedDecks = await localforage.getItem<Deck[]>('kards_decks');
+    const loadedCollections = await localforage.getItem<Collection[]>('kards_collections');
+    const loadedCategories = await localforage.getItem<typeof customCategories>('kards_custom_categories');
+    const loadedSelectedTablecloth = await localforage.getItem<string | null>('kards_selected_tablecloth');
+    const loadedCustomTablecloths = await localforage.getItem<string[]>('kards_custom_tablecloths');
+    const loadedSettings = await localforage.getItem<AppSettings>('kards_settings');
+
+    setDecks(loadedDecks || INITIAL_DECKS);
+    setCollections(loadedCollections || []);
+    setCustomCategories(loadedCategories || []);
+    setSelectedTablecloth(loadedSelectedTablecloth || null);
+    setCustomTablecloths(loadedCustomTablecloths || []);
+    setSettings({ ...DEFAULT_SETTINGS, ...(loadedSettings || {}) });
+    setSelectedDeckId((loadedDecks || [])[0]?.id || null);
+  };
+
+  const handleExportBackup = async () => {
+    try {
+      const backup = await createBackup();
+
+      if (window.kardsDesktop?.saveBackup) {
+        const result = await window.kardsDesktop.saveBackup(backup);
+        setBackupStatus(result.canceled ? '已取消导出。' : `备份已导出：${result.filePath}`);
         return;
       }
 
-      const response = await fetch('/api/deck-image', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ code: deck.code })
-      });
-      
-      const contentType = response.headers.get("content-type");
-      if (!response.ok) {
-        let errorMessage = '获取卡组解析图片失败';
-        if (contentType && contentType.includes("application/json")) {
-           const errorData = await response.json();
-           errorMessage = errorData.error || errorMessage;
-        } else {
-           const text = await response.text();
-           console.error('Server returned HTML/Text instead of JSON:', text.substring(0, 200));
-           errorMessage = `服务器请求失败 (${response.status})`;
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `kards-deck-collector-backup-${new Date().toISOString().slice(0, 10)}.json`;
+      link.click();
+      URL.revokeObjectURL(url);
+      setBackupStatus('备份已导出。');
+    } catch (err: any) {
+      setBackupStatus(err.message || '导出失败。');
+    }
+  };
+
+  const handleImportBackup = async () => {
+    try {
+      let content: string | undefined;
+
+      if (window.kardsDesktop?.openBackup) {
+        const result = await window.kardsDesktop.openBackup();
+        if (result.canceled) {
+          setBackupStatus('已取消导入。');
+          return;
         }
-        throw new Error(errorMessage);
-      }
-      
-      if (!contentType || !contentType.includes("application/json")) {
-        throw new Error('服务器响应格式错误 (非 JSON)');
+        content = result.content;
+      } else {
+        const input = document.createElement('input');
+        input.type = 'file';
+        input.accept = 'application/json,.json';
+        content = await new Promise<string | undefined>((resolve) => {
+          input.onchange = () => {
+            const file = input.files?.[0];
+            if (!file) return resolve(undefined);
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result as string);
+            reader.onerror = () => resolve(undefined);
+            reader.readAsText(file);
+          };
+          input.click();
+        });
       }
 
-      const data = await response.json();
-      if (data.imageData) {
-        await localforage.setItem(`deck_img_${deck.code}`, data.imageData);
-        setDeckImageModal({ show: true, deck, loading: false, imageUrl: data.imageData, error: null });
-      } else {
-        throw new Error('服务器未返回有效的图片数据');
-      }
+      if (!content) return;
+
+      const backup = parseBackup(content);
+      await restoreBackup(backup);
+      await refreshAfterBackupImport();
+      setBackupStatus('备份已导入。请重启应用确认所有缓存图片都已加载。');
     } catch (err: any) {
-      setDeckImageModal({ show: true, deck, loading: false, imageUrl: null, error: err.message });
+      setBackupStatus(err.message || '导入失败，现有数据未被覆盖。');
+    }
+  };
+
+  useEffect(() => {
+    if (!showSettingsModal || !window.kardsDesktop?.getDeckImageConfig) return;
+
+    window.kardsDesktop.getDeckImageConfig()
+      .then(config => {
+        setDeckServiceConfig({
+          deckImageServerMode: config.deckImageServerMode === 'custom' ? 'custom' : 'default',
+          deckImageServerUrl: config.deckImageServerUrl || '',
+          deckCodeField: config.deckCodeField || 'deck_code',
+          deckCodeEncoding: config.deckCodeEncoding === 'base64' ? 'base64' : 'plain',
+          allowInsecureTls: Boolean(config.allowInsecureTls),
+        });
+      })
+      .catch(err => setDeckServiceStatus(err?.message || '读取解析图服务配置失败。'));
+  }, [showSettingsModal]);
+
+  const handleSaveDeckServiceConfig = async () => {
+    try {
+      if (!window.kardsDesktop?.saveDeckImageConfig) {
+        setDeckServiceStatus('当前运行环境不支持桌面配置。');
+        return;
+      }
+
+      if (deckServiceConfig.deckImageServerMode === 'custom' && !deckServiceConfig.deckImageServerUrl?.trim()) {
+        setDeckServiceStatus('请输入自定义解析图服务 URL。');
+        return;
+      }
+
+      const savedConfig = await window.kardsDesktop.saveDeckImageConfig(deckServiceConfig);
+      setDeckServiceConfig(savedConfig);
+      setDeckServiceStatus('解析图服务配置已保存。');
+    } catch (err: any) {
+      setDeckServiceStatus(err.message || '保存解析图服务配置失败。');
     }
   };
 
@@ -620,18 +774,37 @@ export default function App() {
     setErrorStatus(null);
   };
 
+  const handleDismissClipboardDeck = () => {
+    if (clipboardDeckCandidate) {
+      sessionStorage.setItem('kards_dismissed_clipboard_deck_code', clipboardDeckCandidate.code);
+    }
+    setClipboardDeckCandidate(null);
+  };
+
+  const handleImportClipboardDeck = () => {
+    if (!clipboardDeckCandidate) return;
+
+    setImportCode(clipboardDeckCandidate.sourceText);
+    setImportName(currentName => currentName || clipboardDeckCandidate.name);
+    setErrorStatus(null);
+    setShowImportModal(true);
+    setClipboardDeckCandidate(null);
+  };
+
   const handleAddDeck = () => {
     if (!importCode.trim()) return;
     
     try {
-      const { mainNation, allyNation, totalCards, warnings, isArena, defaultName } = parseDeck(importCode);
+      const deckCode = extractDeckCodeFromText(importCode);
+      const inferredName = inferDeckTitleFromText(importCode, deckCode);
+      const { mainNation, allyNation, totalCards, warnings, isArena, defaultName } = parseDeck(deckCode);
       
       const newDeck: Deck = {
         id: Date.now().toString(),
-        name: importName.trim() || defaultName,
+        name: importName.trim() || inferredName || defaultName,
         mainNation,
         allyNation,
-        code: importCode,
+        code: deckCode,
         isFavorite: false,
         totalCards,
         warnings,
@@ -650,6 +823,10 @@ export default function App() {
       setFilterMainNation('All');
       setFilterAllyNation('All');
       setFilterTag('All');
+
+      getOrGenerateDeckImage(newDeck.code).catch(error => {
+        console.info('Deck image pre-generation skipped:', error);
+      });
     } catch (e: any) {
       setErrorStatus(ERROR_LOCALE[e.message] || e.message || '格式错误');
     }
@@ -1328,6 +1505,67 @@ export default function App() {
       )}
     </div>
 
+      {/* --- Clipboard Import Prompt --- */}
+      <AnimatePresence>
+        {clipboardDeckCandidate && !showImportModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={handleDismissClipboardDeck}
+              className="absolute inset-0 bg-kards-modal-overlay backdrop-blur-sm"
+            />
+            <motion.div
+              initial={{ scale: 0.92, opacity: 0, y: 18 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.92, opacity: 0, y: 18 }}
+              className="relative w-full max-w-md military-border p-6 shadow-2xl transition-all"
+              style={{
+                backgroundColor: `rgba(var(--rgb-panel-overlay), ${settings.importBoxOpacity})`,
+                backdropFilter: `blur(${settings.importBoxOpacity * 10}px)`
+              }}
+            >
+              <button
+                onClick={handleDismissClipboardDeck}
+                className="absolute top-4 right-4 text-kards-text-muted hover:text-kards-text"
+              >
+                <X className="w-5 h-5" />
+              </button>
+
+              <h3 className="text-lg font-bold mb-4 flex items-center gap-2 text-kards-text">
+                <Copy className="w-5 h-5 text-kards-gold" /> 检测到剪贴板卡组码
+              </h3>
+
+              <div className="space-y-3">
+                <p className="text-sm text-kards-text-muted">
+                  是否导入剪贴板中的卡组？
+                </p>
+                <div className="bg-kards-input-bg border border-kards-border rounded-md p-3">
+                  <p className="text-sm font-bold text-kards-text truncate">{clipboardDeckCandidate.name}</p>
+                  <p className="text-xs font-mono text-kards-gold break-all mt-1">{clipboardDeckCandidate.code}</p>
+                </div>
+              </div>
+
+              <div className="flex gap-3 pt-5">
+                <button
+                  onClick={handleDismissClipboardDeck}
+                  className="flex-1 border border-kards-border py-3 font-bold hover:bg-kards-panel-hover transition-colors rounded-md"
+                >
+                  暂不导入
+                </button>
+                <button
+                  onClick={handleImportClipboardDeck}
+                  className="flex-1 bg-kards-accent py-3 font-bold text-white hover:brightness-125 transition-all shadow-lg rounded-md"
+                >
+                  导入
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
       {/* --- Import Modal --- */}
       <AnimatePresence>
         {showImportModal && (
@@ -1371,15 +1609,14 @@ export default function App() {
                     className="w-full bg-kards-input-bg border border-kards-border px-4 py-3 text-kards-text focus:outline-none focus:border-kards-gold transition-colors mb-4 rounded-md"
                   />
                   <label className="block text-xs uppercase tracking-wider text-kards-text-muted mb-2 font-bold">输入卡组码</label>
-                  <input 
-                    type="text" 
+                  <textarea
                     value={importCode || ''}
                     onChange={(e) => {
                       setImportCode(e.target.value);
                       setErrorStatus(null);
                     }}
-                    placeholder="例如: %%53|5ucCbn;5W6L..."
-                    className={`w-full bg-kards-input-bg border ${errorStatus ? 'border-red-500' : 'border-kards-border'} px-4 py-3 text-kards-gold font-mono focus:outline-none focus:border-kards-gold transition-colors rounded-md`}
+                    placeholder="例如: %%53|5ucCbn;5W6L... 或直接粘贴游戏内复制的整段卡组列表"
+                    className={`w-full min-h-32 resize-y bg-kards-input-bg border ${errorStatus ? 'border-red-500' : 'border-kards-border'} px-4 py-3 text-kards-gold font-mono focus:outline-none focus:border-kards-gold transition-colors rounded-md`}
                     autoFocus
                   />
                   {errorStatus && (
@@ -2443,6 +2680,109 @@ export default function App() {
                     className="w-full accent-kards-gold h-1.5 bg-kards-panel-alt rounded-lg appearance-none cursor-pointer"
                   />
                 </div>
+
+                <div className="space-y-3 pt-2 border-t border-kards-border">
+                  <div className="flex flex-col gap-1">
+                    <span className="text-sm font-bold text-kards-text tracking-wider">数据备份</span>
+                    <span className="text-[10px] text-kards-text-muted uppercase tracking-tighter">导出或导入桌面版数据</span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-3">
+                    <button
+                      onClick={handleExportBackup}
+                      className="bg-kards-panel border border-kards-border text-kards-text text-xs font-bold tracking-widest py-2 hover:border-kards-gold hover:text-kards-gold transition-colors"
+                    >
+                      导出备份
+                    </button>
+                    <button
+                      onClick={handleImportBackup}
+                      className="bg-kards-panel border border-kards-border text-kards-text text-xs font-bold tracking-widest py-2 hover:border-kards-gold hover:text-kards-gold transition-colors"
+                    >
+                      导入备份
+                    </button>
+                  </div>
+                  {backupStatus && (
+                    <p className="text-[11px] text-kards-text-muted break-all">{backupStatus}</p>
+                  )}
+                </div>
+
+                {window.kardsDesktop?.getDeckImageConfig && (
+                  <div className="space-y-4 pt-2 border-t border-kards-border">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-sm font-bold text-kards-text tracking-wider">卡组解析图</span>
+                      <span className="text-[10px] text-kards-text-muted uppercase tracking-tighter">默认内置服务，也支持自定义 URL</span>
+                    </div>
+
+                    <label className="space-y-1 block">
+                      <span className="text-[10px] font-bold text-kards-text-muted uppercase tracking-widest">服务来源</span>
+                      <select
+                        value={deckServiceConfig.deckImageServerMode || 'default'}
+                        onChange={e => setDeckServiceConfig(config => ({ ...config, deckImageServerMode: e.target.value as 'default' | 'custom' }))}
+                        className="w-full bg-kards-input-bg border border-kards-input-border text-kards-text text-xs px-3 py-2 focus:outline-none focus:border-kards-gold rounded transition-colors"
+                      >
+                        <option value="default">内置默认</option>
+                        <option value="custom">自定义 URL</option>
+                      </select>
+                    </label>
+
+                    {deckServiceConfig.deckImageServerMode === 'custom' && (
+                      <label className="space-y-1 block">
+                        <span className="text-[10px] font-bold text-kards-text-muted uppercase tracking-widest">服务 URL</span>
+                        <input
+                          type="url"
+                          value={deckServiceConfig.deckImageServerUrl || ''}
+                          onChange={e => setDeckServiceConfig(config => ({ ...config, deckImageServerUrl: e.target.value }))}
+                          placeholder="https://your-server.example/api/kards/draw_deck"
+                          className="w-full bg-kards-input-bg border border-kards-input-border text-kards-text text-xs px-3 py-2 focus:outline-none focus:border-kards-gold rounded transition-colors"
+                        />
+                      </label>
+                    )}
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <label className="space-y-1 block">
+                        <span className="text-[10px] font-bold text-kards-text-muted uppercase tracking-widest">字段名</span>
+                        <input
+                          type="text"
+                          value={deckServiceConfig.deckCodeField || 'deck_code'}
+                          onChange={e => setDeckServiceConfig(config => ({ ...config, deckCodeField: e.target.value }))}
+                          className="w-full bg-kards-input-bg border border-kards-input-border text-kards-text text-xs px-3 py-2 focus:outline-none focus:border-kards-gold rounded transition-colors"
+                        />
+                      </label>
+
+                      <label className="space-y-1 block">
+                        <span className="text-[10px] font-bold text-kards-text-muted uppercase tracking-widest">发送格式</span>
+                        <select
+                          value={deckServiceConfig.deckCodeEncoding || 'plain'}
+                          onChange={e => setDeckServiceConfig(config => ({ ...config, deckCodeEncoding: e.target.value as 'plain' | 'base64' }))}
+                          className="w-full bg-kards-input-bg border border-kards-input-border text-kards-text text-xs px-3 py-2 focus:outline-none focus:border-kards-gold rounded transition-colors"
+                        >
+                          <option value="plain">原始卡组码</option>
+                          <option value="base64">Base64</option>
+                        </select>
+                      </label>
+                    </div>
+
+                    <label className="flex items-center justify-between gap-3 text-xs text-kards-text">
+                      <span>跳过 HTTPS 证书检测</span>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(deckServiceConfig.allowInsecureTls)}
+                        onChange={e => setDeckServiceConfig(config => ({ ...config, allowInsecureTls: e.target.checked }))}
+                        className="w-4 h-4 accent-kards-gold"
+                      />
+                    </label>
+
+                    <button
+                      onClick={handleSaveDeckServiceConfig}
+                      className="w-full bg-kards-panel border border-kards-border text-kards-text text-xs font-bold tracking-widest py-2 hover:border-kards-gold hover:text-kards-gold transition-colors"
+                    >
+                      保存解析图配置
+                    </button>
+
+                    {deckServiceStatus && (
+                      <p className="text-[11px] text-kards-text-muted break-all">{deckServiceStatus}</p>
+                    )}
+                  </div>
+                )}
               </div>
 
               {/* Footer - Fixed */}

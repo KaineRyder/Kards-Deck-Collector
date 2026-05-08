@@ -1,15 +1,76 @@
 {
-  "name": "react-example",
+  "name": "kards-deck-collector",
   "private": true,
   "version": "0.0.0",
+  "description": "Offline-first KARDS deck manager for web and Windows desktop.",
   "type": "module",
+  "main": "dist-electron/main.cjs",
   "scripts": {
     "dev": "tsx server.ts",
-    "build": "vite build && esbuild server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:express",
+    "dev:web": "tsx server.ts",
+    "dev:renderer": "vite --host 127.0.0.1",
+    "dev:desktop": "concurrently -k \"npm:dev:renderer\" \"npm:dev:electron:wait\"",
+    "dev:electron:wait": "wait-on tcp:5173 && npm run build:electron && node scripts/start-electron.cjs . --disable-crash-reporter",
+    "build": "npm run build:web && npm run build:server",
+    "build:web": "vite build",
+    "build:server": "esbuild server.ts --bundle --platform=node --format=cjs --outfile=dist/server.cjs --external:express",
+    "build:electron": "node scripts/build-electron.cjs",
+    "build:electron:dev": "node -e \"process.env.KARDS_ENABLE_DEVELOPER_OPTIONS='true'; require('./scripts/build-electron.cjs')\"",
+    "build:desktop": "npm run build:web && npm run build:electron",
+    "build:desktop:dev": "npm run build:web && npm run build:electron:dev",
+    "dist:win": "npm run build:desktop && electron-builder --win --x64",
+    "dist:win:dir": "npm run build:desktop && electron-builder --win --x64 --dir -c.win.signAndEditExecutable=false",
+    "dist:win:portable": "npm run build:desktop && electron-builder --win portable --x64 -c.win.signAndEditExecutable=false",
+    "dist:win:portable:dev": "npm run build:desktop:dev && electron-builder --win portable --x64 -c.win.signAndEditExecutable=false",
     "start": "node dist/server.cjs",
     "preview": "vite preview",
-    "clean": "rm -rf dist",
-    "lint": "tsc --noEmit"
+    "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('dist-electron',{recursive:true,force:true});fs.rmSync('release',{recursive:true,force:true})\"",
+    "lint": "tsc --noEmit",
+    "test:deck-import": "tsx src/lib/deckImport.test.ts"
+  },
+  "build": {
+    "appId": "com.kardsdeckcollector.app",
+    "productName": "KARDS Deck Collector",
+    "compression": "maximum",
+    "npmRebuild": false,
+    "buildDependenciesFromSource": false,
+    "afterPack": "scripts/prune-electron-package.cjs",
+    "electronLanguages": [
+      "en-US",
+      "zh-CN"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "dist-electron/**/*",
+      "package.json",
+      "!node_modules/**/*",
+      "!src/**/*",
+      "!electron/**/*",
+      "!openspec/**/*",
+      "!public/**/*",
+      "!release/**/*",
+      "!*.log"
+    ],
+    "extraMetadata": {
+      "main": "dist-electron/main.cjs"
+    },
+    "win": {
+      "signAndEditExecutable": true,
+      "target": [
+        "nsis",
+        "portable",
+        "dir"
+      ],
+      "icon": "public/assets/kards_logos/Common/KardsLogoBlack.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true
+    }
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.14",
@@ -27,12 +88,19 @@
     "vite": "^6.2.0"
   },
   "devDependencies": {
+    "@rollup/rollup-win32-x64-msvc": "^4.60.3",
+    "@tailwindcss/oxide-win32-x64-msvc": "^4.2.4",
     "@types/express": "^4.17.21",
     "@types/node": "^22.14.0",
     "autoprefixer": "^10.4.21",
+    "concurrently": "^9.2.1",
+    "electron": "^38.2.0",
+    "electron-builder": "^26.0.12",
+    "lightningcss-win32-x64-msvc": "^1.32.0",
     "tailwindcss": "^4.1.14",
     "tsx": "^4.21.0",
     "typescript": "~5.8.2",
-    "vite": "^6.2.0"
+    "vite": "^6.2.0",
+    "wait-on": "^8.0.4"
   }
 }
