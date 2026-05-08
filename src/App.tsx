@@ -39,6 +39,7 @@ import getCroppedImg from './lib/cropImage';
 import { createBackup, parseBackup, restoreBackup } from './lib/backup';
 import { generateLightModeColors } from './lib/colorUtils';
 import { requestDeckImage } from './lib/deckImageClient';
+import { extractDeckCodeFromText, inferDeckTitleFromText } from './lib/deckImport';
 
 // --- Types ---
 type Nation = 'Germany' | 'Soviet' | 'USA' | 'Japan' | 'Britain' | 'Finland' | 'Italy' | 'France' | 'Poland';
@@ -719,14 +720,16 @@ export default function App() {
     if (!importCode.trim()) return;
     
     try {
-      const { mainNation, allyNation, totalCards, warnings, isArena, defaultName } = parseDeck(importCode);
+      const deckCode = extractDeckCodeFromText(importCode);
+      const inferredName = inferDeckTitleFromText(importCode, deckCode);
+      const { mainNation, allyNation, totalCards, warnings, isArena, defaultName } = parseDeck(deckCode);
       
       const newDeck: Deck = {
         id: Date.now().toString(),
-        name: importName.trim() || defaultName,
+        name: importName.trim() || inferredName || defaultName,
         mainNation,
         allyNation,
-        code: importCode,
+        code: deckCode,
         isFavorite: false,
         totalCards,
         warnings,
@@ -1466,15 +1469,14 @@ export default function App() {
                     className="w-full bg-kards-input-bg border border-kards-border px-4 py-3 text-kards-text focus:outline-none focus:border-kards-gold transition-colors mb-4 rounded-md"
                   />
                   <label className="block text-xs uppercase tracking-wider text-kards-text-muted mb-2 font-bold">输入卡组码</label>
-                  <input 
-                    type="text" 
+                  <textarea
                     value={importCode || ''}
                     onChange={(e) => {
                       setImportCode(e.target.value);
                       setErrorStatus(null);
                     }}
-                    placeholder="例如: %%53|5ucCbn;5W6L..."
-                    className={`w-full bg-kards-input-bg border ${errorStatus ? 'border-red-500' : 'border-kards-border'} px-4 py-3 text-kards-gold font-mono focus:outline-none focus:border-kards-gold transition-colors rounded-md`}
+                    placeholder="例如: %%53|5ucCbn;5W6L... 或直接粘贴游戏内复制的整段卡组列表"
+                    className={`w-full min-h-32 resize-y bg-kards-input-bg border ${errorStatus ? 'border-red-500' : 'border-kards-border'} px-4 py-3 text-kards-gold font-mono focus:outline-none focus:border-kards-gold transition-colors rounded-md`}
                     autoFocus
                   />
                   {errorStatus && (

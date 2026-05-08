@@ -25,7 +25,8 @@
     "start": "node dist/server.cjs",
     "preview": "vite preview",
     "clean": "node -e \"fs.rmSync('dist',{recursive:true,force:true});fs.rmSync('dist-electron',{recursive:true,force:true});fs.rmSync('release',{recursive:true,force:true})\"",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "test:deck-import": "tsx src/lib/deckImport.test.ts"
   },
   "build": {
     "appId": "com.kardsdeckcollector.app",
