@@ -1,4 +1,5 @@
 {
+  "deckImageServerMode": "custom",
   "deckImageServerUrl": "https://your-server.example/api/kards/draw_deck",
   "deckCodeField": "deck_code",
   "deckCodeEncoding": "plain",

@@ -21,6 +21,7 @@ declare global {
   }
 
   interface KardsDesktopDeckImageConfig {
+    deckImageServerMode?: 'default' | 'custom';
     deckImageServerUrl?: string;
     deckCodeField?: string;
     deckCodeEncoding?: 'plain' | 'base64';
@@ -31,6 +32,7 @@ declare global {
     kardsDesktop?: {
       generateDeckImage: (code: string) => Promise<string>;
       getAppInfo: () => Promise<KardsDesktopAppInfo>;
+      readClipboardText: () => Promise<string>;
       getDeckImageConfig: () => Promise<KardsDesktopDeckImageConfig>;
       saveDeckImageConfig: (config: KardsDesktopDeckImageConfig) => Promise<KardsDesktopDeckImageConfig>;
       saveBackup: (backup: unknown) => Promise<KardsDesktopBackupSaveResult>;

@@ -96,18 +96,23 @@ unpacked 测试版入口：
 release/win-unpacked/KARDS Deck Collector.exe
 ```
 
-设置窗口里新增了“数据备份”，可以导出或导入卡组、合集、设置、自定义桌布、自定义卡背和缓存图片。桌面版生成卡组解析图时会优先走 Electron 主进程代理；没有配置解析图服务时，只影响解析图功能，不影响离线管理卡组。
+设置窗口里新增了“数据备份”，可以导出或导入卡组、合集、设置、自定义桌布、自定义卡背和缓存图片。桌面版生成卡组解析图时会优先走 Electron 主进程代理，并且便携版默认内置了解析图服务，首次启动即可直接使用。
 
 ### Windows 打包
 
 - `npm run dist:win:portable`：生成 Windows 便携版，输出 `release/KARDS Deck Collector 0.0.0.exe`。
 - `npm run dist:win:portable:dev`：生成带调试配置入口的便携版，便于本地联调解析图服务。
 
-打包时可以通过本机私有 `app-config.json` 或环境变量注入解析图服务配置。`app-config.json` 已被 `.gitignore` 忽略，不会进入开源仓库。
+便携版默认不需要额外的 `app-config.json`。如果你想切换服务线路，可以在程序设置里的“卡组解析图”中选择“自定义 URL”并保存。
 
 ### 卡组解析图服务配置
 
-开源仓库不会保存真实服务器地址。开发者需要接入解析图服务时，可以复制示例配置：
+桌面版设置里提供两种方式：
+
+1. `内置默认`：直接使用打包内置的解析图服务，设置界面不会展示默认地址。
+2. `自定义 URL`：手动填入你自己的服务地址。
+
+如果你确实想手工写配置文件，也可以复制示例：
 
 ```powershell
 Copy-Item app-config.example.json app-config.json
@@ -117,6 +122,7 @@ Copy-Item app-config.example.json app-config.json
 
 ```json
 {
+  "deckImageServerMode": "custom",
   "deckImageServerUrl": "https://your-server.example/api/kards/draw_deck",
   "deckCodeField": "deck_code",
   "deckCodeEncoding": "plain",
@@ -124,14 +130,10 @@ Copy-Item app-config.example.json app-config.json
 }
 ```
 
-桌面版读取顺序：
+当前桌面版运行时的优先级是：
 
-1. `KARDS_APP_CONFIG` 指定的配置文件
-2. 用户数据目录中的 `app-config.json`
-3. 便携版 exe 同目录的 `app-config.json`
-4. 项目根目录的 `app-config.json`
-5. 打包时注入的默认配置
-6. 环境变量 `DECK_IMAGE_SERVER_URL`
+1. 设置中保存的自定义 URL（保存在用户数据目录的 `app-config.json`）
+2. 程序内置默认服务
 
 发送到服务器的请求体为：
 

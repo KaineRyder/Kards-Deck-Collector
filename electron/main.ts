@@ -1,5 +1,5 @@
 import 'dotenv/config';
-import { app, BrowserWindow, dialog, ipcMain, protocol } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, protocol } from 'electron';
 import fs from 'fs/promises';
 import path from 'path';
 
@@ -29,20 +29,54 @@ type BackupPayload = {
 };
 
 type AppConfig = {
+  deckImageServerMode?: 'default' | 'custom';
   deckImageServerUrl?: string;
   deckCodeField?: string;
   deckCodeEncoding?: 'plain' | 'base64';
   allowInsecureTls?: boolean;
 };
 
-declare const __KARDS_BUNDLED_APP_CONFIG__: AppConfig;
 declare const __KARDS_ENABLE_DEVELOPER_OPTIONS__: boolean;
 
-const bundledAppConfig = __KARDS_BUNDLED_APP_CONFIG__;
 const enableDeveloperOptions = __KARDS_ENABLE_DEVELOPER_OPTIONS__;
+const defaultDeckImageConfig: AppConfig = {
+  deckImageServerMode: 'default',
+  deckImageServerUrl: 'https://frp-hen.com:58086/api/kards/draw_deck',
+  deckCodeField: 'deck_code',
+  deckCodeEncoding: 'plain',
+  allowInsecureTls: true,
+};
 
 function getUserAppConfigPath() {
   return path.join(app.getPath('userData'), 'app-config.json');
+}
+
+function resolveCustomDeckImageServerUrl(config: AppConfig) {
+  const trimmedUrl = typeof config.deckImageServerUrl === 'string' ? config.deckImageServerUrl.trim() : '';
+
+  if (config.deckImageServerMode === 'default') {
+    return '';
+  }
+
+  if (config.deckImageServerMode === 'custom') {
+    return trimmedUrl;
+  }
+
+  return trimmedUrl;
+}
+
+function normalizeDeckImageConfig(config: AppConfig): AppConfig {
+  const customUrl = resolveCustomDeckImageServerUrl(config);
+
+  return {
+    deckImageServerMode: customUrl ? 'custom' : 'default',
+    deckImageServerUrl: customUrl,
+    deckCodeField: config.deckCodeField?.trim() || defaultDeckImageConfig.deckCodeField || 'deck_code',
+    deckCodeEncoding: config.deckCodeEncoding === 'base64' ? 'base64' : defaultDeckImageConfig.deckCodeEncoding || 'plain',
+    allowInsecureTls: typeof config.allowInsecureTls === 'boolean'
+      ? config.allowInsecureTls
+      : Boolean(defaultDeckImageConfig.allowInsecureTls),
+  };
 }
 
 async function readJsonConfig(filePath: string): Promise<AppConfig> {
@@ -57,28 +91,21 @@ async function readJsonConfig(filePath: string): Promise<AppConfig> {
 }
 
 async function loadAppConfig(): Promise<AppConfig> {
-  const configPaths = [
-    process.env.KARDS_APP_CONFIG,
-    app.isReady() ? getUserAppConfigPath() : undefined,
-    process.env.PORTABLE_EXECUTABLE_DIR
-      ? path.join(process.env.PORTABLE_EXECUTABLE_DIR, 'app-config.json')
-      : undefined,
-    path.join(path.dirname(process.execPath), 'app-config.json'),
-    path.join(process.cwd(), 'app-config.json'),
-  ].filter((configPath): configPath is string => Boolean(configPath));
+  const userConfig = normalizeDeckImageConfig(await readJsonConfig(getUserAppConfigPath()));
 
-  for (const configPath of configPaths) {
-    const config = await readJsonConfig(configPath);
-    if (config.deckImageServerUrl) {
-      return config;
-    }
-  }
+  return {
+    deckImageServerMode: userConfig.deckImageServerMode,
+    deckImageServerUrl: userConfig.deckImageServerMode === 'custom'
+      ? userConfig.deckImageServerUrl
+      : defaultDeckImageConfig.deckImageServerUrl,
+    deckCodeField: userConfig.deckCodeField,
+    deckCodeEncoding: userConfig.deckCodeEncoding,
+    allowInsecureTls: userConfig.allowInsecureTls,
+  };
+}
 
-  if (bundledAppConfig.deckImageServerUrl) {
-    return bundledAppConfig;
-  }
-
-  return {};
+async function loadUserDeckImageConfig(): Promise<AppConfig> {
+  return normalizeDeckImageConfig(await readJsonConfig(getUserAppConfigPath()));
 }
 
 function encodeDeckCode(code: string) {
@@ -235,7 +262,7 @@ async function requestDeckImage(code: unknown) {
   const appConfig = await loadAppConfig();
   const serverUrl = appConfig.deckImageServerUrl || process.env.DECK_IMAGE_SERVER_URL || '';
   if (!serverUrl) {
-    throw new Error('Please configure deckImageServerUrl in app-config.json or set DECK_IMAGE_SERVER_URL before generating deck images.');
+    throw new Error('Deck image service is not configured.');
   }
 
   if (appConfig.allowInsecureTls || process.env.DECK_IMAGE_ALLOW_INSECURE_TLS === 'true') {
@@ -303,25 +330,12 @@ function registerIpcHandlers() {
     developerOptions: enableDeveloperOptions,
   }));
 
-  ipcMain.handle('app-config:get', async () => {
-    if (!enableDeveloperOptions) {
-      throw new Error('Developer options are disabled in this build.');
-    }
+  ipcMain.handle('clipboard:read-text', () => clipboard.readText());
 
-    return loadAppConfig();
-  });
+  ipcMain.handle('app-config:get', async () => loadUserDeckImageConfig());
 
   ipcMain.handle('app-config:set', async (_event, config: AppConfig) => {
-    if (!enableDeveloperOptions) {
-      throw new Error('Developer options are disabled in this build.');
-    }
-
-    const nextConfig: AppConfig = {
-      deckImageServerUrl: typeof config.deckImageServerUrl === 'string' ? config.deckImageServerUrl.trim() : '',
-      deckCodeField: config.deckCodeField?.trim() || 'deck_code',
-      deckCodeEncoding: config.deckCodeEncoding === 'base64' ? 'base64' : 'plain',
-      allowInsecureTls: Boolean(config.allowInsecureTls),
-    };
+    const nextConfig = normalizeDeckImageConfig(config);
 
     await fs.mkdir(path.dirname(getUserAppConfigPath()), { recursive: true });
     await fs.writeFile(getUserAppConfigPath(), JSON.stringify(nextConfig, null, 2), 'utf-8');
